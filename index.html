@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DH Robot Simulator</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <aside id="panel">
+    <header>
+      <h1>DH Robot Simulator</h1>
+      <p class="sub">Configuration <span id="config" class="config">RRR</span></p>
+    </header>
+
+    <section class="card">
+      <h2>Presets</h2>
+      <div id="presets" class="presets"></div>
+    </section>
+
+    <div id="joints"></div>
+    <button id="add-joint" class="add-joint">+ Add joint</button>
+
+    <section class="card">
+      <h2>Drawing &amp; view</h2>
+      <div class="scale-row">
+        <label for="scale-num">Drawing scale</label>
+        <span class="muted">1 drawn unit =</span>
+        <input id="scale-num" type="number" min="0" step="any" />
+        <span class="muted">units</span>
+        <button id="scale-auto" title="Pick a scale that fits the current robot">Auto</button>
+      </div>
+      <p class="note">Only changes how the robot is drawn. Slider ranges grow with the scale; the matrices and the EE position always use the real values.</p>
+      <div class="row">
+        <label for="grip-range">grip</label>
+        <input id="grip-range" type="range" min="0.05" max="0.6" step="0.01" />
+        <input id="grip-num" type="number" min="0.05" max="0.6" step="any" />
+        <span class="unit"></span>
+      </div>
+      <label class="check"><input id="show-ee" type="checkbox" checked autocomplete="off" /> Show end-effector coordinates on canvas</label>
+      <label class="check"><input id="show-dims" type="checkbox" checked autocomplete="off" /> Show DH parameters on canvas</label>
+      <label class="check"><input id="show-axes" type="checkbox" checked autocomplete="off" /> Show frame axes</label>
+      <label class="check"><input id="show-labels" type="checkbox" checked autocomplete="off" /> Show frame labels</label>
+      <label class="check"><input id="show-grid" type="checkbox" checked autocomplete="off" /> Show ground grid</label>
+    </section>
+
+    <section class="card">
+      <h2>End-effector <span class="muted">(origin of <span id="ee-frame">{3}</span>)</span></h2>
+      <div class="xyz" id="ee-pos"></div>
+    </section>
+
+    <section class="card">
+      <h2>Transformation matrices</h2>
+      <div id="matrices"></div>
+    </section>
+
+    <section class="card">
+      <h2>DH parameter table</h2>
+      <table id="dh-table" class="dh-table"></table>
+      <p class="note">* = joint variable</p>
+    </section>
+  </aside>
+
+  <main id="viewport">
+    <div class="overlay-tools">
+      <button id="toggle-panel" class="overlay tool-btn" title="Hide sidebar" aria-label="Hide sidebar">◀</button>
+      <button id="fit-view" class="overlay tool-btn wide" title="Frame the whole robot">Fit view</button>
+    </div>
+    <div class="overlay legend">
+      <span><i style="background:var(--x)"></i>X</span>
+      <span><i style="background:var(--y)"></i>Y</span>
+      <span><i style="background:var(--z)"></i>Z</span>
+      <span><i style="background:var(--rev)"></i>Revolute</span>
+      <span><i style="background:var(--prism)"></i>Prismatic</span>
+      <span class="sep"></span>
+      <span style="color:var(--dim-theta)">θ</span>
+      <span style="color:var(--dim-d)">d</span>
+      <span style="color:var(--dim-a)">a</span>
+      <span style="color:var(--dim-alpha)">α</span>
+      <span class="sep"></span>
+      <span id="grid-info" class="muted"></span>
+    </div>
+    <div class="view-nav">
+      <div class="viewcube-stage" aria-label="View cube: click a face to view the robot from that side">
+        <div id="viewcube" class="viewcube"></div>
+      </div>
+      <div class="view-btns">
+        <button id="view-iso" class="overlay tool-btn" title="Isometric view (Numpad 0)">Iso</button>
+        <div id="projection" class="seg proj" role="group" aria-label="Projection">
+          <button data-proj="ortho" title="Orthographic (Numpad 5 toggles)">Ortho</button>
+          <button data-proj="persp" title="Perspective (Numpad 5 toggles)">Persp</button>
+        </div>
+      </div>
+      <div class="overlay nav-locks">
+        <div class="lock-row">
+          <span>Rotate</span>
+          <div class="seg lock" data-mode="rotate" role="group" aria-label="Rotate lock">
+            <button data-axis="free" title="Rotate freely">Free</button>
+            <button data-axis="x" title="Rotate about the X axis">X</button>
+            <button data-axis="y" title="Rotate about the Y axis">Y</button>
+            <button data-axis="z" title="Rotate about the Z axis">Z</button>
+          </div>
+        </div>
+        <div class="lock-row">
+          <span>Pan</span>
+          <div class="seg lock" data-mode="pan" role="group" aria-label="Pan lock">
+            <button data-axis="free" title="Pan freely">Free</button>
+            <button data-axis="x" title="Pan along the X axis">X</button>
+            <button data-axis="y" title="Pan along the Y axis">Y</button>
+            <button data-axis="z" title="Pan along the Z axis">Z</button>
+          </div>
+        </div>
+        <div class="lock-hint">or hold <kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd> while dragging</div>
+      </div>
+    </div>
+    <div class="overlay hint">Drag: rotate · Right/Shift-drag: pan · Scroll: zoom</div>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

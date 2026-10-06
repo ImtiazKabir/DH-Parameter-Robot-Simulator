@@ -1,0 +1,75 @@
+# DH Robot Simulator
+
+Interactive 3D web simulator for the Denavit–Hartenberg (DH) parameters of a
+serial robot (1–8 joints, three by default) with a gripper. Built with plain JavaScript and Three.js
+(loaded from a CDN), so there is no build step.
+
+## Run
+
+ES modules need an http origin, so serve the folder:
+
+```bash
+python3 -m http.server 8000
+```
+
+Then open <http://localhost:8000>. An internet connection is needed to load Three.js.
+Open a preset directly with a URL hash: `#articulated`, `#planar`, `#scara` or `#cylindrical`.
+
+## Features
+
+- For each joint, set θ, d, a, α with a slider or a number input. The model updates live.
+- Add joints with **+ Add joint** (up to 8) and remove one with its **✕** button.
+- Default: RRR with (θ, d, a, α) = (50°, 18, 0, 90°), (60°, 0, 20, 0°), (−85°, 0, 14, 0°)
+  at drawing scale 10.
+- Each joint can be **Revolute** (θ is the variable, drawn as an orange drum with a θ arc)
+  or **Prismatic** (d is the variable, drawn as a purple sleeve with a sliding rod).
+  The row for the joint variable is highlighted.
+- Frames {0}–{3} are drawn with the usual colors: **X red, Y green, Z blue**.
+- **Drawing scale**: 1 drawn unit = S real units. This lets large values (e.g. d = 50)
+  fit on screen; the slider ranges grow with S. **Auto** picks a scale that fits the robot.
+  Values typed into the number boxes for d and a are not capped by the slider.
+- **DH parameters on canvas** (on by default): each θ, d, a and α is drawn in place, like a
+  dimensioned drawing. d and a are dimension lines along z₍ᵢ₋₁₎ and xᵢ. θ is an arc about
+  z₍ᵢ₋₁₎ from x₍ᵢ₋₁₎ to xᵢ. α is an arc about xᵢ from z₍ᵢ₋₁₎ to zᵢ. Joint variables are drawn
+  bold. Zero values have no geometry, so they are not drawn.
+- **End-effector tag** on the canvas showing the EE coordinates (on by default; it can be
+  turned off under "Drawing & view").
+- Sidebar readouts: the end-effector position (origin of the last frame), every link
+  transform T⁰₁, T¹₂, … (written with both indices on the right), the final
+  T⁰ₙ = A₁A₂…Aₙ, and a DH table. All use real (unscaled) values.
+- The sidebar can be collapsed with the ◀ button at the top-left of the canvas. **Fit view** frames the robot.
+- **View cube** (top-right, like Blender's): click a face to go to the Front, Back, Left,
+  Right, Top or Bottom view, with a smooth transition. The edges (e.g. Front-Right) and
+  corners (e.g. Top-Front-Right) are clickable too, giving 26 views in all. Hovering an edge
+  or corner highlights it on every face it touches. **Iso** returns to the isometric view.
+  Front looks along +Y, Right along −X, and Top looks down −Z.
+- **Projection**: the **Ortho / Persp** toggle switches between orthographic and perspective
+  without changing the view direction or the on-screen size. The default is orthographic,
+  isometric.
+- Keyboard (Blender numpad): 1 Front, 3 Right, 7 Top (with Ctrl: Back, Left, Bottom),
+  5 toggles the projection, 0 isometric.
+- Mouse: drag to rotate (turntable), right-drag or Shift-drag to pan, scroll to zoom.
+- **Axis locks**: the Rotate and Pan rows under the view cube lock dragging to a world axis.
+  - Rotate X/Y/Z turns the view about that axis through the orbit center (the dark dot).
+    Drag across the axis; when the axis points at you, drag around the center to roll.
+  - Pan X/Y/Z slides the scene only along that axis, following the mouse.
+  - You can also hold X, Y or Z while dragging to lock temporarily.
+  - Colored guide lines show the locked axes. A locked rotation may roll the view; the view
+    cube or Iso brings it back level.
+
+## Convention
+
+This uses the standard (distal) DH convention. Joint i moves about or along z₍ᵢ₋₁₎:
+
+```
+A_i = Rz(θi) · Tz(di) · Tx(ai) · Rx(αi)
+T^0_n = A_1 · A_2 · … · A_n
+```
+
+The gripper is mounted at the last frame {n}, with its fingers pointing along xₙ.
+
+## Files
+
+- `js/dh.js`: the DH matrix and forward kinematics (no Three.js)
+- `js/main.js`: the scene, robot drawing, UI and readouts
+- `index.html`, `style.css`: layout and styles
