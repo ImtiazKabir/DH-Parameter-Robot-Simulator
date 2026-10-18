@@ -24,6 +24,12 @@ Open a preset directly with a URL hash: `#articulated`, `#planar`, `#scara` or `
 - Each joint can be **Revolute** (θ is the variable, drawn as an orange drum with a θ arc)
   or **Prismatic** (d is the variable, drawn as a purple sleeve with a sliding rod).
   The row for the joint variable is highlighted.
+- **Rotation cue**: while you drag a θ slider (or edit a θ value), that joint and its link turn
+  into a black-and-white checker pattern. This makes the turning easy to see, even for parts
+  that spin about their own axis, like the base column. The pattern goes away about half a
+  second after you stop.
+- View options start minimal: only the ground grid is shown. Turn on the EE coordinates, DH
+  dimensions, frame axes and frame labels under "Drawing & view".
 - Frames {0}–{3} are drawn with the usual colors: **X red, Y green, Z blue**.
 - **Drawing scale**: 1 drawn unit = S real units. This lets large values (e.g. d = 50)
   fit on screen; the slider ranges grow with S. **Auto** picks a scale that fits the robot.
@@ -48,6 +54,12 @@ Open a preset directly with a URL hash: `#articulated`, `#planar`, `#scara` or `
   isometric.
 - Keyboard (Blender numpad): 1 Front, 3 Right, 7 Top (with Ctrl: Back, Left, Bottom),
   5 toggles the projection, 0 isometric.
+- **View modes** (toggle at the top of the canvas):
+  - **Single**: one view you can orbit, with the view cube, projection toggle and axis locks.
+  - **Multi-view**: several panes, each with a fixed orthographic camera. Choose them with the
+    chips: Top, Iso, Front, Right, Left, Back, Bottom (default: Top and Iso). In a
+    pane, drag to pan, scroll to zoom toward the cursor, and double-click to fit. You can't
+    orbit. Each pane keeps its own pan and zoom; **Fit view** refits them all.
 - Mouse: drag to rotate (turntable), right-drag or Shift-drag to pan, scroll to zoom.
 - **Axis locks**: the Rotate and Pan rows under the view cube lock dragging to a world axis.
   - Rotate X/Y/Z turns the view about that axis through the orbit center (the dark dot).

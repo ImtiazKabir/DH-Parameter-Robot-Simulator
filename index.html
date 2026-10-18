@@ -45,10 +45,10 @@
         <input id="grip-num" type="number" min="0.05" max="0.6" step="any" />
         <span class="unit"></span>
       </div>
-      <label class="check"><input id="show-ee" type="checkbox" checked autocomplete="off" /> Show end-effector coordinates on canvas</label>
-      <label class="check"><input id="show-dims" type="checkbox" checked autocomplete="off" /> Show DH parameters on canvas</label>
-      <label class="check"><input id="show-axes" type="checkbox" checked autocomplete="off" /> Show frame axes</label>
-      <label class="check"><input id="show-labels" type="checkbox" checked autocomplete="off" /> Show frame labels</label>
+      <label class="check"><input id="show-ee" type="checkbox" autocomplete="off" /> Show end-effector coordinates on canvas</label>
+      <label class="check"><input id="show-dims" type="checkbox" autocomplete="off" /> Show DH parameters on canvas</label>
+      <label class="check"><input id="show-axes" type="checkbox" autocomplete="off" /> Show frame axes</label>
+      <label class="check"><input id="show-labels" type="checkbox" autocomplete="off" /> Show frame labels</label>
       <label class="check"><input id="show-grid" type="checkbox" checked autocomplete="off" /> Show ground grid</label>
     </section>
 
@@ -70,9 +70,15 @@
   </aside>
 
   <main id="viewport">
+    <div id="panes" class="panes" aria-label="Multi-view panes"></div>
     <div class="overlay-tools">
       <button id="toggle-panel" class="overlay tool-btn" title="Hide sidebar" aria-label="Hide sidebar">◀</button>
       <button id="fit-view" class="overlay tool-btn wide" title="Frame the whole robot">Fit view</button>
+      <div id="view-mode" class="seg proj" role="group" aria-label="View mode">
+        <button data-mode="single" title="One view you can orbit">Single</button>
+        <button data-mode="multi" title="Several fixed-angle panes (pan and zoom only)">Multi-view</button>
+      </div>
+      <div id="pane-picker" class="pane-picker" role="group" aria-label="Panes to show"></div>
     </div>
     <div class="overlay legend">
       <span><i style="background:var(--x)"></i>X</span>
@@ -121,7 +127,7 @@
         <div class="lock-hint">or hold <kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd> while dragging</div>
       </div>
     </div>
-    <div class="overlay hint">Drag: rotate · Right/Shift-drag: pan · Scroll: zoom</div>
+    <div id="hint" class="overlay hint">Drag: rotate · Right/Shift-drag: pan · Scroll: zoom</div>
   </main>
 
   <script type="module" src="js/main.js"></script>

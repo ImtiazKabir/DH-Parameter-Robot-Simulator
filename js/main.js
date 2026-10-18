@@ -92,11 +92,14 @@ const state = {
   joints: clone(PRESETS[DEFAULT_PRESET].joints),
   grip: 0.3,
   scale: PRESETS[DEFAULT_PRESET].scale, // drawing scale: 1 drawn unit = `scale` real length units
-  showAxes: true,
-  showDims: true,
-  showEE: true, // end-effector coordinate tag on the canvas
-  showLabels: true,
+  showAxes: false,
+  showDims: false,
+  showEE: false, // end-effector coordinate tag on the canvas
+  showLabels: false,
   showGrid: true,
+  viewMode: 'single',                           // 'single' | 'multi'
+  paneViews: ['top', 'iso'],                    // panes shown in multi-view
+  rotating: null,                               // index of the joint whose θ is being changed
 };
 
 // ---------------------------------------------------------------------------
@@ -113,6 +116,7 @@ const labelRenderer = new CSS2DRenderer();
 labelRenderer.domElement.className = 'label-layer';
 viewport.insertBefore(labelRenderer.domElement, renderer.domElement.nextSibling);
 
+renderer.setClearColor(0xdfe3ea); // gutters between multi-view panes
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf4f6f9);
 
@@ -165,6 +169,29 @@ const MAT = {
   gripper: new THREE.MeshStandardMaterial({ color: 0x0d9488, metalness: 0.25, roughness: 0.4 }),
   origin: new THREE.MeshBasicMaterial({ color: 0x1d2430 }),
 };
+// "Spin" skin shown on a joint and its link while its θ is being changed: a
+// black-and-white checker (8 squares around the circumference), so turning —
+// even about a part's own axis — is easy to follow.
+const SPIN_CHECKS = 8;
+function makeSpinTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const n = SPIN_CHECKS, sz = c.width / n;
+  for (let x = 0; x < n; x++) {
+    for (let y = 0; y < n; y++) {
+      g.fillStyle = (x + y) % 2 ? '#16191f' : '#f4f5f7';
+      g.fillRect(x * sz, y * sz, sz, sz);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+MAT.spin = new THREE.MeshStandardMaterial({ map: makeSpinTexture(), metalness: 0.05, roughness: 0.6 });
+
 const AXIS_MAT = Object.fromEntries(
   Object.entries(COLORS).map(([k, c]) => [k, new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })]),
 );
@@ -281,7 +308,15 @@ function frameGroup(T) {
 function cylinderAlong(axis, from, to, radius, mat) {
   const len = Math.abs(to - from);
   if (len < 1e-4) return null;
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 24), mat);
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 24);
+  if (mat === MAT.spin) {
+    // Stretch the side's v by length / circumference so checks stay square on
+    // long links (the side's vertices come first; the caps keep their UVs).
+    const uv = geo.attributes.uv;
+    const k = len / (2 * Math.PI * radius);
+    for (let n = 0; n < 25 * 2; n++) uv.setY(n, uv.getY(n) * k); // (radial 24 + 1) × (height 1 + 1)
+  }
+  const m = new THREE.Mesh(geo, mat);
   const mid = (from + to) / 2;
   if (axis === 'z') { m.rotation.x = Math.PI / 2; m.position.z = mid; }
   else { m.rotation.z = Math.PI / 2; m.position.x = mid; }
@@ -301,22 +336,27 @@ function buildJoint(i, Ts) {
   const a = j.a / state.scale;
   const prev = frameGroup(Ts[i]); // joint i+1 acts about z_i (frame {i})
   const cur = frameGroup(Ts[i + 1]);
+  // Parts that turn with θ live in frame {i} rotated by θ about z_i, so a
+  // patterned surface visibly spins even where the shape is symmetric.
+  const rotor = frameGroup(Ts[i]);
+  rotor.matrix.multiply(new THREE.Matrix4().makeRotationZ(deg2rad(j.theta)));
+  const spin = state.rotating === i;
 
   if (j.type === 'R') {
-    // Revolute: rotating drum on z_{i}, d-offset is a fixed link along z_{i}.
-    prev.add(cylinderAlong('z', -0.22, 0.22, 0.17, MAT.revolute));
-    const dLink = cylinderAlong('z', 0, d, 0.07, MAT.link);
-    if (dLink) prev.add(dLink);
+    // Revolute: rotating drum on z_{i}, d-offset is a link along z_{i}.
+    rotor.add(cylinderAlong('z', -0.22, 0.22, 0.17, spin ? MAT.spin : MAT.revolute));
+    const dLink = cylinderAlong('z', 0, d, 0.07, spin ? MAT.spin : MAT.link);
+    if (dLink) rotor.add(dLink);
   } else {
     // Prismatic: fixed translucent sleeve + rod sliding out of it by d.
     prev.add(box(0.36, 0.36, 0.7, MAT.sleeve, 0, 0, 0.13));
     const rodStart = -0.22;
     const rodLen = d - rodStart;
-    if (rodLen > 1e-4) prev.add(box(0.18, 0.18, rodLen, MAT.rod, 0, 0, rodStart + rodLen / 2));
+    if (rodLen > 1e-4) rotor.add(box(0.18, 0.18, rodLen, spin ? MAT.spin : MAT.rod, 0, 0, rodStart + rodLen / 2));
   }
 
   // a-offset: link along x_{i+1}, ending at the origin of frame {i+1}.
-  const aLink = cylinderAlong('x', -a, 0, 0.07, MAT.link);
+  const aLink = cylinderAlong('x', -a, 0, 0.07, spin ? MAT.spin : MAT.link);
   if (aLink) cur.add(aLink);
 
   const sphere = (r, x) => {
@@ -483,11 +523,17 @@ function update() {
   updateReadouts(real);
 }
 
-// Frame the whole robot, keeping the current viewing direction.
-function fitView() {
+// Bounding box of the robot drawing (plus the base origin).
+function robotBox() {
   const box3 = new THREE.Box3().setFromObject(robot);
-  box3.expandByPoint(new THREE.Vector3(0, 0, 0));
-  const sphere = box3.getBoundingSphere(new THREE.Sphere());
+  return box3.expandByPoint(new THREE.Vector3(0, 0, 0));
+}
+
+// Frame the whole robot, keeping the current viewing direction (and, in
+// multi-view, refit every pane as well).
+function fitView() {
+  if (state.viewMode === 'multi') panes.forEach(fitPane);
+  const sphere = robotBox().getBoundingSphere(new THREE.Sphere());
   const r = Math.max(sphere.radius, 1.5) + 0.8; // margin for axes and labels
   const dir = backDir();
   let dist;
@@ -757,6 +803,7 @@ function panDrag(dx, dy) {
 }
 
 canvas.addEventListener('pointerdown', (e) => {
+  if (state.viewMode === 'multi') return;
   const pan = e.button === 1 || e.button === 2 || e.shiftKey || e.ctrlKey || e.metaKey;
   if (e.button !== 0 && !pan) return;
   drag = { mode: pan ? 'pan' : 'rotate', x: e.clientX, y: e.clientY };
@@ -780,6 +827,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
+  if (state.viewMode === 'multi') return;
   const delta = e.deltaY * (e.deltaMode === 1 ? 33 : 1); // lines → pixels
   const s = Math.pow(1.0015, delta); // > 1 zooms out
   viewAnim = null;
@@ -861,6 +909,245 @@ function updateGuides() {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-view: panes with fixed-angle orthographic cameras (pan + zoom only)
+// ---------------------------------------------------------------------------
+
+// Display order; the default set gives the classic layout Top | Iso over Front | Right.
+const PANE_VIEWS = [
+  // Top/Bottom get exact bases (right, up) — a look-at with Z up would need a tilt.
+  { key: 'top', name: 'Top', axis: '+Z', dir: V(0, 0, 1), basis: [V(1, 0, 0), V(0, 1, 0)] },
+  { key: 'iso', name: 'Iso', axis: '', dir: ISO_DIR },
+  { key: 'front', name: 'Front', axis: '−Y', dir: V(0, -1, 0) },
+  { key: 'right', name: 'Right', axis: '+X', dir: V(1, 0, 0) },
+  { key: 'left', name: 'Left', axis: '−X', dir: V(-1, 0, 0) },
+  { key: 'back', name: 'Back', axis: '+Y', dir: V(0, 1, 0) },
+  { key: 'bottom', name: 'Bottom', axis: '−Z', dir: V(0, 0, -1), basis: [V(1, 0, 0), V(0, -1, 0)] },
+];
+
+// CSS2DRenderer can show each label element in one place only, so every pane
+// projects its own copies of the scene's CSS2D labels.
+class LabelLayer {
+  constructor(parent) {
+    this.el = document.createElement('div');
+    this.el.className = 'pane-labels';
+    parent.append(this.el);
+    this.items = new Map(); // CSS2DObject -> { el, html }
+    this.v = new THREE.Vector3();
+  }
+
+  render(scn, cam, w, h) {
+    const seen = new Set();
+    scn.traverseVisible((o) => { // skips hidden subtrees, unlike CSS2DRenderer
+      if (!o.isCSS2DObject) return;
+      this.v.setFromMatrixPosition(o.matrixWorld).project(cam);
+      if (this.v.z < -1 || this.v.z > 1) return;
+      let item = this.items.get(o);
+      if (!item) {
+        const el = document.createElement('div');
+        el.style.position = 'absolute';
+        this.el.append(el);
+        item = { el, html: null };
+        this.items.set(o, item);
+      }
+      const src = o.element;
+      if (item.html !== src.innerHTML) item.el.innerHTML = item.html = src.innerHTML;
+      if (item.el.className !== src.className) item.el.className = src.className;
+      if (item.el.style.color !== src.style.color) item.el.style.color = src.style.color;
+      const x = ((this.v.x + 1) / 2) * w;
+      const y = ((1 - this.v.y) / 2) * h;
+      item.el.style.transform = `translate(${-100 * o.center.x}%,${-100 * o.center.y}%) translate(${x}px,${y}px)`;
+      seen.add(o);
+    });
+    for (const [o, item] of this.items) {
+      if (!seen.has(o)) { item.el.remove(); this.items.delete(o); }
+    }
+  }
+}
+
+const panesEl = document.getElementById('panes');
+let panes = []; // { view, el, cam, target, halfH, labels }
+
+const paneAxes = (p) => ({
+  right: new THREE.Vector3(1, 0, 0).applyQuaternion(p.cam.quaternion),
+  up: new THREE.Vector3(0, 1, 0).applyQuaternion(p.cam.quaternion),
+  back: new THREE.Vector3(0, 0, 1).applyQuaternion(p.cam.quaternion),
+});
+
+function createPane(view) {
+  const el = document.createElement('div');
+  el.className = 'pane';
+  el.dataset.view = view.key;
+  el.innerHTML = `<div class="pane-title">${view.name}${view.axis ? ` <small>${view.axis}</small>` : ''}</div>`;
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -500, 500);
+  cam.up.set(0, 0, 1);
+  if (view.basis) {
+    const [right, up] = view.basis;
+    cam.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, view.dir));
+  } else {
+    cam.quaternion.copy(lookQuat(view.dir.clone().normalize()));
+  }
+  const pane = { view, el, cam, target: new THREE.Vector3(), halfH: 4, labels: new LabelLayer(el) };
+  attachPaneInput(pane);
+  return pane;
+}
+
+// Pan (any mouse button), zoom toward the cursor, double-click to refit. No orbit.
+function attachPaneInput(p) {
+  let last = null;
+  p.el.addEventListener('pointerdown', (e) => {
+    last = { x: e.clientX, y: e.clientY };
+    p.el.classList.add('dragging');
+    try { p.el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+  });
+  p.el.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    const k = (p.cam.top - p.cam.bottom) / p.cam.zoom / (p.el.clientHeight || 1); // world units per px
+    const { right, up } = paneAxes(p);
+    p.target.addScaledVector(right, -(e.clientX - last.x) * k).addScaledVector(up, (e.clientY - last.y) * k);
+    last = { x: e.clientX, y: e.clientY };
+  });
+  const end = () => { last = null; p.el.classList.remove('dragging'); };
+  p.el.addEventListener('pointerup', end);
+  p.el.addEventListener('pointercancel', end);
+  p.el.addEventListener('contextmenu', (e) => e.preventDefault());
+  p.el.addEventListener('dblclick', () => fitPane(p));
+  p.el.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+    const z0 = p.cam.zoom;
+    const z1 = clamp(z0 / Math.pow(1.0015, delta), 0.02, 200);
+    // Keep the world point under the cursor fixed while zooming.
+    const r = p.el.getBoundingClientRect();
+    const nx = ((e.clientX - r.left - p.el.clientLeft) / p.el.clientWidth) * 2 - 1;
+    const ny = 1 - ((e.clientY - r.top - p.el.clientTop) / p.el.clientHeight) * 2;
+    const f = 1 / z0 - 1 / z1;
+    const { right, up } = paneAxes(p);
+    p.target.addScaledVector(right, nx * p.cam.right * f).addScaledVector(up, ny * p.cam.top * f);
+    p.cam.zoom = z1;
+    p.cam.updateProjectionMatrix();
+  }, { passive: false });
+}
+
+// Fit the robot's bounding box as seen from this pane's direction.
+function fitPane(p) {
+  const box = robotBox();
+  const { right, up } = paneAxes(p);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    const c = new THREE.Vector3(
+      i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z,
+    );
+    const x = c.dot(right), y = c.dot(up);
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  const margin = 0.8; // room for axes, arrows and labels
+  const asp = (p.el.clientWidth || 1) / (p.el.clientHeight || 1);
+  p.halfH = Math.max((y1 - y0) / 2 + margin, ((x1 - x0) / 2 + margin) / asp);
+  p.cam.zoom = 1;
+  p.cam.updateProjectionMatrix();
+  const center = box.getCenter(new THREE.Vector3());
+  p.target.copy(center)
+    .addScaledVector(right, (x0 + x1) / 2 - center.dot(right))
+    .addScaledVector(up, (y0 + y1) / 2 - center.dot(up));
+}
+
+// Rebuild the pane grid for state.paneViews, keeping the pan/zoom of panes that stay.
+function rebuildPanes() {
+  const old = new Map(panes.map((p) => [p.view.key, p]));
+  panesEl.replaceChildren();
+  const fresh = [];
+  panes = PANE_VIEWS.filter((v) => state.paneViews.includes(v.key)).map((v) => {
+    let p = old.get(v.key);
+    if (!p) { p = createPane(v); fresh.push(p); }
+    panesEl.append(p.el);
+    return p;
+  });
+  const n = panes.length;
+  const cols = n <= 3 ? n : Math.ceil(Math.sqrt(n));
+  panesEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  panesEl.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, minmax(0, 1fr))`;
+  fresh.forEach(fitPane);
+}
+
+function renderPanes() {
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight;
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, W, H);
+  renderer.clear();
+  renderer.setScissorTest(true);
+  const c = canvas.getBoundingClientRect();
+  for (const p of panes) {
+    const r = p.el.getBoundingClientRect();
+    const w = p.el.clientWidth, h = p.el.clientHeight;
+    if (w < 2 || h < 2) continue;
+    const x = r.left - c.left + p.el.clientLeft;
+    const y = H - (r.top - c.top + p.el.clientTop) - h; // WebGL y is from the bottom
+    const asp = w / h;
+    Object.assign(p.cam, { top: p.halfH, bottom: -p.halfH, left: -p.halfH * asp, right: p.halfH * asp });
+    p.cam.updateProjectionMatrix();
+    p.cam.position.copy(p.target).addScaledVector(paneAxes(p).back, 50);
+    renderer.setViewport(x, y, w, h);
+    renderer.setScissor(x, y, w, h);
+    renderer.render(scene, p.cam);
+    p.labels.render(scene, p.cam, w, h);
+  }
+  renderer.setScissorTest(false);
+}
+
+// Pane picker chips
+const pickerEl = document.getElementById('pane-picker');
+const chipEls = PANE_VIEWS.map((v) => {
+  const b = document.createElement('button');
+  b.className = 'chip';
+  b.textContent = v.name;
+  b.title = `Show the ${v.name} pane`;
+  b.addEventListener('click', () => {
+    const on = state.paneViews.includes(v.key);
+    if (on && state.paneViews.length === 1) return; // keep at least one pane
+    state.paneViews = on ? state.paneViews.filter((k) => k !== v.key) : [...state.paneViews, v.key];
+    syncPaneChips();
+    rebuildPanes();
+  });
+  pickerEl.append(b);
+  return b;
+});
+function syncPaneChips() {
+  PANE_VIEWS.forEach((v, i) => {
+    const on = state.paneViews.includes(v.key);
+    chipEls[i].classList.toggle('active', on);
+    chipEls[i].setAttribute('aria-pressed', on);
+  });
+}
+
+const HINTS = {
+  single: 'Drag: rotate · Right/Shift-drag: pan · Scroll: zoom',
+  multi: 'Drag: pan · Scroll: zoom at cursor · Double-click: fit pane',
+};
+function setViewMode(mode) {
+  state.viewMode = mode;
+  viewport.classList.toggle('multi', mode === 'multi');
+  document.querySelectorAll('#view-mode button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  document.getElementById('hint').textContent = HINTS[mode];
+  if (mode === 'multi') {
+    drag = null;
+    Object.values(guides).forEach((l) => { l.visible = false; });
+    pivot.visible = false;
+    rebuildPanes(); // layout is visible now, so new panes can be fitted
+  } else {
+    // Pane rendering leaves the viewport on the last pane; restore the full canvas.
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, canvas.clientWidth, canvas.clientHeight);
+  }
+}
+document.querySelectorAll('#view-mode button').forEach((b) => {
+  b.addEventListener('click', () => setViewMode(b.dataset.mode));
+});
+
+// ---------------------------------------------------------------------------
 // UI
 // ---------------------------------------------------------------------------
 
@@ -924,10 +1211,18 @@ function buildJointCards() {
       num.step = 'any';
       row.append(label, range, num, el('span', 'unit', p.unit));
 
+      if (p.key === 'theta') {
+        // Show the spin skin while the θ slider is held, and briefly after.
+        range.addEventListener('pointerdown', () => { setSpinning(i, true); update(); });
+        const release = () => { if (state.rotating === i) setSpinning(i, false); };
+        range.addEventListener('pointerup', release);
+        range.addEventListener('pointercancel', release);
+      }
       range.addEventListener('input', () => {
         const v = round6(parseFloat(range.value));
         state.joints[i][p.key] = v;
         num.value = v;
+        if (p.key === 'theta') setSpinning(i);
         update();
       });
       const onNum = (commit) => {
@@ -938,6 +1233,7 @@ function buildJointCards() {
         state.joints[i][p.key] = c;
         range.value = c;
         if (commit) num.value = c;
+        if (p.key === 'theta') setSpinning(i);
         update();
       };
       num.addEventListener('input', () => onNum(false));
@@ -949,6 +1245,22 @@ function buildJointCards() {
     host.append(card);
     ui[i] = { card, buttons, del, rows };
   });
+}
+
+// Mark joint i as rotating. `hold` true keeps the skin until released; otherwise
+// it clears itself shortly after the last change (keyboard, typed values).
+let spinHold = false;
+let spinTimer = 0;
+function setSpinning(i, hold) {
+  clearTimeout(spinTimer);
+  if (hold !== undefined) spinHold = hold;
+  state.rotating = i;
+  if (!spinHold) {
+    spinTimer = setTimeout(() => {
+      state.rotating = null;
+      update();
+    }, 600);
+  }
 }
 
 function syncJointUI(i) {
@@ -988,6 +1300,9 @@ function syncAllUI() {
 
 // Joint count or preset changed: rebuild cards and frames, then reframe the view.
 function structureChanged() {
+  clearTimeout(spinTimer);
+  spinHold = false;
+  state.rotating = null; // joint indices may have shifted
   buildJointCards();
   rebuildFrames();
   syncAllUI();
@@ -1080,7 +1395,7 @@ const VIEW_TOGGLES = {
   'show-ee': ['showEE', () => { eeLabel.visible = state.showEE; }],
   'show-dims': ['showDims', () => update()],
   'show-axes': ['showAxes', () => applyAxesVisibility()],
-  'show-labels': ['showLabels', () => labelRenderer.domElement.classList.toggle('hide-labels', !state.showLabels)],
+  'show-labels': ['showLabels', () => viewport.classList.toggle('hide-labels', !state.showLabels)],
   'show-grid': ['showGrid', () => { grid.visible = state.showGrid; }],
 };
 for (const [id, [key, apply]] of Object.entries(VIEW_TOGGLES)) {
@@ -1143,13 +1458,20 @@ function resize() {
   perspCam.updateProjectionMatrix();
   setOrthoHalfHeight(orthoCam.top); // keep height, refit width
   // setSize clears the canvas; redraw now so it never shows a blank frame.
-  renderer.render(scene, camera);
-  labelRenderer.render(scene, camera);
+  if (state.viewMode === 'multi') renderPanes();
+  else {
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
+  }
 }
 new ResizeObserver(resize).observe(viewport);
 
 function animate(now) {
   requestAnimationFrame(animate);
+  if (state.viewMode === 'multi') {
+    renderPanes();
+    return;
+  }
   stepViewAnim(now);
   updateGuides();
   updateViewCube();
@@ -1167,5 +1489,8 @@ if (PRESETS[hashPreset]) {
 resize();
 setProjection('ortho');
 syncLockUI();
+syncPaneChips();
+setViewMode(state.viewMode);
 structureChanged();
+Object.values(VIEW_TOGGLES).forEach(([, apply]) => apply()); // initial view toggles
 requestAnimationFrame(animate);
