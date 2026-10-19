@@ -145,6 +145,26 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 [data-type="P"] .row.var label { color: var(--prism-text); }
 [data-type="P"] .row.var input[type="range"] { accent-color: var(--prism); }
 
+.sub-row { margin-top: 2px; padding-left: 30px; }
+.sub-row label { font: 12px system-ui, sans-serif; color: var(--muted); }
+.row.disabled { opacity: 0.45; }
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translate(-50%, 8px);
+  padding: 7px 14px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(29, 36, 48, 0.92);
+  border-radius: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 .check { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); cursor: pointer; }
 
 .scale-row {

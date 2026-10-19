@@ -50,6 +50,13 @@
       <label class="check"><input id="show-axes" type="checkbox" autocomplete="off" /> Show frame axes</label>
       <label class="check"><input id="show-labels" type="checkbox" autocomplete="off" /> Show frame labels</label>
       <label class="check"><input id="show-grid" type="checkbox" checked autocomplete="off" /> Show ground grid</label>
+      <label class="check"><input id="show-shadow" type="checkbox" autocomplete="off" /> Show projection on XY plane</label>
+      <div class="row sub-row">
+        <label for="shadow-opacity">opacity</label>
+        <input id="shadow-opacity" type="range" min="0.05" max="0.8" step="0.01" autocomplete="off" />
+        <output id="shadow-opacity-out" for="shadow-opacity" class="unit"></output>
+        <span></span>
+      </div>
     </section>
 
     <section class="card">
@@ -74,6 +81,8 @@
     <div class="overlay-tools">
       <button id="toggle-panel" class="overlay tool-btn" title="Hide sidebar" aria-label="Hide sidebar">◀</button>
       <button id="fit-view" class="overlay tool-btn wide" title="Frame the whole robot">Fit view</button>
+      <button id="save-image" class="overlay tool-btn" title="Save the current view as a PNG">Save image</button>
+      <button id="copy-image" class="overlay tool-btn" title="Copy the current view to the clipboard">Copy image</button>
       <div id="view-mode" class="seg proj" role="group" aria-label="View mode">
         <button data-mode="single" title="One view you can orbit">Single</button>
         <button data-mode="multi" title="Several fixed-angle panes (pan and zoom only)">Multi-view</button>
@@ -127,6 +136,7 @@
         <div class="lock-hint">or hold <kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd> while dragging</div>
       </div>
     </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="hint" class="overlay hint">Drag: rotate · Right/Shift-drag: pan · Scroll: zoom</div>
   </main>
 

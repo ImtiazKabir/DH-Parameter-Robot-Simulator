@@ -37,6 +37,13 @@ Open a preset directly with a URL hash: `#planar1r`, `#planar2r`, `#planar3r`, `
   into a black-and-white checker pattern. This makes the turning easy to see, even for parts
   that spin about their own axis, like the base column. The pattern goes away about half a
   second after you stop.
+- **Projection on the XY plane** (opt-in, under "Drawing & view"): a soft shadow of the robot cast
+  straight down onto the ground, i.e. its orthographic projection onto the XY plane. The opacity
+  slider sets how strong it is (default 25%).
+- **Save image / Copy image** (canvas toolbar): exports what you see as a PNG, including the labels.
+  In multi-view the image contains the panes with their titles. Copying needs a browser with
+  clipboard image support (recent Chrome, Edge, Safari or Firefox) and an `https://` or `localhost`
+  page.
 - View options start minimal: only the ground grid is shown. Turn on the EE coordinates, DH
   dimensions, frame axes and frame labels under "Drawing & view".
 - Frames {0}–{3} are drawn with the usual colors: **X red, Y green, Z blue**.

@@ -112,6 +112,8 @@ const state = {
   showEE: false, // end-effector coordinate tag on the canvas
   showLabels: false,
   showGrid: true,
+  showShadow: false,   // projection of the robot on the XY (ground) plane
+  shadowOpacity: 0.25,
   viewMode: 'single',                           // 'single' | 'multi'
   paneViews: ['top', 'iso'],                    // panes shown in multi-view
   rotating: null,                               // index of the joint whose θ is being changed
@@ -172,6 +174,44 @@ const grid = new THREE.GridHelper(12, 24, 0xa9b2bf, 0xd9dee5);
 grid.rotation.x = Math.PI / 2; // GridHelper lies in XZ; rotate into XY
 grid.position.z = -0.3;
 scene.add(grid);
+
+// Projection of the robot onto the ground (XY) plane: the shadow of a light
+// pointing straight down, caught by an otherwise invisible plane. A shadow map
+// keeps overlapping parts one even tone (no darker double-covered patches).
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+const GROUND_Z = -0.295; // just above the grid
+const projLight = new THREE.DirectionalLight(0xffffff, 0); // casts the shadow only; adds no light
+projLight.shadow.mapSize.set(2048, 2048);
+projLight.shadow.bias = -0.0005;
+scene.add(projLight, projLight.target);
+const projPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.ShadowMaterial({ color: 0x1d2430, opacity: 0.25 }),
+);
+projPlane.position.z = GROUND_Z;
+projPlane.receiveShadow = true;
+scene.add(projPlane);
+
+// Fit the vertical shadow camera tightly around the robot's footprint.
+function updateProjection() {
+  const on = state.showShadow;
+  projLight.castShadow = on;
+  projPlane.visible = on;
+  projPlane.material.opacity = state.shadowOpacity;
+  if (!on) return;
+  robot.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const box = new THREE.Box3().setFromObject(robot);
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3());
+  const half = Math.max(box.max.x - box.min.x, box.max.y - box.min.y) / 2 + 0.5;
+  const top = Math.max(box.max.z, 0) + 2;
+  projLight.position.set(c.x, c.y, top);
+  projLight.target.position.set(c.x, c.y, GROUND_Z);
+  const cam = projLight.shadow.camera;
+  Object.assign(cam, { left: -half, right: half, top: half, bottom: -half, near: 0.01, far: top - GROUND_Z + 1 });
+  cam.updateProjectionMatrix();
+}
 
 const MAT = {
   link: new THREE.MeshStandardMaterial({ color: 0x8b95a5, metalness: 0.35, roughness: 0.4 }),
@@ -529,6 +569,7 @@ function update() {
   for (let i = 0; i < n; i++) buildJoint(i, drawn);
   buildGripper(drawn[n]);
   buildDims(drawn);
+  updateProjection();
 
   const ee = [0, 1, 2].map((r) => real[n][r][3]);
   eeLabel.visible = state.showEE;
@@ -1412,7 +1453,21 @@ const VIEW_TOGGLES = {
   'show-axes': ['showAxes', () => applyAxesVisibility()],
   'show-labels': ['showLabels', () => viewport.classList.toggle('hide-labels', !state.showLabels)],
   'show-grid': ['showGrid', () => { grid.visible = state.showGrid; }],
+  'show-shadow': ['showShadow', () => {
+    updateProjection();
+    shadowRange.disabled = !state.showShadow;
+    shadowRange.closest('.row').classList.toggle('disabled', !state.showShadow);
+  }],
 };
+const shadowRange = document.getElementById('shadow-opacity');
+const shadowOut = document.getElementById('shadow-opacity-out');
+shadowRange.value = state.shadowOpacity;
+shadowOut.textContent = `${Math.round(state.shadowOpacity * 100)}%`;
+shadowRange.addEventListener('input', () => {
+  state.shadowOpacity = parseFloat(shadowRange.value);
+  shadowOut.textContent = `${Math.round(state.shadowOpacity * 100)}%`;
+  updateProjection();
+});
 for (const [id, [key, apply]] of Object.entries(VIEW_TOGGLES)) {
   const box = document.getElementById(id);
   box.checked = state[key];
@@ -1457,6 +1512,153 @@ function updateReadouts(Ts) {
         cell(j, 'a', fmt(j.a, 2)) + cell(j, 'alpha', fmt(j.alpha, 1)) + '</tr>')
       .join('');
 }
+
+// ---------------------------------------------------------------------------
+// Image export: the WebGL canvas plus the HTML labels, composited into one PNG
+// ---------------------------------------------------------------------------
+
+function renderNow() {
+  if (state.viewMode === 'multi') renderPanes();
+  else {
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
+  }
+}
+
+const isTransparent = (c) => !c || c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c);
+
+// Paint one label element (background, border, text — including <sub>/<small>
+// runs, each at its laid-out position) onto ctx. (ox, oy) = page offset of ctx's origin.
+function paintElement(ctx, el, ox, oy) {
+  const cs = getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden') return;
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const x = r.left - ox, y = r.top - oy;
+  const radius = parseFloat(cs.borderTopLeftRadius) || 0;
+  if (!isTransparent(cs.backgroundColor)) {
+    ctx.fillStyle = cs.backgroundColor;
+    ctx.beginPath();
+    ctx.roundRect(x, y, r.width, r.height, radius);
+    ctx.fill();
+  }
+  const bw = parseFloat(cs.borderTopWidth) || 0;
+  if (bw > 0 && cs.borderTopStyle !== 'none') {
+    ctx.lineWidth = bw;
+    ctx.strokeStyle = cs.borderTopColor;
+    ctx.beginPath();
+    ctx.roundRect(x + bw / 2, y + bw / 2, r.width - bw, r.height - bw, Math.max(0, radius - bw / 2));
+    ctx.stroke();
+  }
+  const range = document.createRange();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.textContent.replace(/\s+/g, ' ');
+    if (!text.trim()) continue;
+    const ps = getComputedStyle(n.parentElement);
+    range.selectNodeContents(n);
+    const tr = range.getBoundingClientRect();
+    ctx.font = `${ps.fontStyle} ${ps.fontWeight} ${ps.fontSize} ${ps.fontFamily}`;
+    ctx.fillStyle = ps.color;
+    ctx.textBaseline = 'alphabetic';
+    const m = ctx.measureText(text);
+    const ascent = m.fontBoundingBoxAscent ?? tr.height * 0.8;
+    const halo = ps.textShadow && ps.textShadow !== 'none';
+    if (halo) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 3; }
+    for (let k = 0; k < (halo ? 3 : 1); k++) ctx.fillText(text, tr.left - ox, tr.top - oy + ascent);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+  }
+}
+
+// Render now and composite canvas + labels. Single view: the whole canvas;
+// multi-view: just the pane grid, with pane borders and titles.
+function captureImage() {
+  renderNow();
+  const base = canvas.getBoundingClientRect();
+  let region = { x: 0, y: 0, w: canvas.clientWidth, h: canvas.clientHeight };
+  if (state.viewMode === 'multi') {
+    const pr = panesEl.getBoundingClientRect();
+    const pad = 8;
+    region = { x: pr.left - base.left - pad, y: pr.top - base.top - pad, w: pr.width + 2 * pad, h: pr.height + 2 * pad };
+  }
+  const dpr = renderer.getPixelRatio();
+  const out = document.createElement('canvas');
+  out.width = Math.round(region.w * dpr);
+  out.height = Math.round(region.h * dpr);
+  const ctx = out.getContext('2d');
+  // Read the WebGL canvas in the same task as the render, before it is presented.
+  ctx.drawImage(canvas, region.x * dpr, region.y * dpr, out.width, out.height, 0, 0, out.width, out.height);
+  ctx.scale(dpr, dpr);
+  const ox = base.left + region.x, oy = base.top + region.y;
+  const clipTo = (el) => {
+    const r = el.getBoundingClientRect();
+    ctx.beginPath();
+    ctx.rect(r.left - ox, r.top - oy, r.width, r.height);
+    ctx.clip();
+    return r;
+  };
+  if (state.viewMode === 'multi') {
+    for (const pane of panes) {
+      ctx.save();
+      const r = clipTo(pane.el);
+      pane.el.querySelectorAll('.pane-labels > div').forEach((l) => paintElement(ctx, l, ox, oy));
+      paintElement(ctx, pane.el.querySelector('.pane-title'), ox, oy);
+      ctx.strokeStyle = getComputedStyle(pane.el).borderTopColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(r.left - ox + 0.5, r.top - oy + 0.5, r.width - 1, r.height - 1);
+      ctx.restore();
+    }
+  } else {
+    ctx.save();
+    clipTo(canvas);
+    for (const l of labelRenderer.domElement.children) paintElement(ctx, l, ox, oy);
+    ctx.restore();
+  }
+  return out;
+}
+
+function snapshotName() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `dh-robot-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+}
+
+const toastEl = document.getElementById('toast');
+let toastTimer = 0;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+
+document.getElementById('save-image').addEventListener('click', () => {
+  captureImage().toBlob((blob) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = snapshotName();
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast(`Saved ${a.download}`);
+  }, 'image/png');
+});
+
+document.getElementById('copy-image').addEventListener('click', async () => {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    toast('This browser cannot copy images — use Save image instead');
+    return;
+  }
+  const out = captureImage();
+  try {
+    // Pass the blob as a promise so the clipboard write starts inside the click.
+    const blob = new Promise((resolve) => out.toBlob(resolve, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    toast('Image copied to clipboard');
+  } catch (err) {
+    toast(`Could not copy the image (${err.message})`);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Render loop
