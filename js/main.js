@@ -14,22 +14,37 @@ const DIM_COLORS = { theta: '#d97706', d: '#7c3aed', a: '#0891b2', alpha: '#db27
 // Angles are in degrees in the UI/state; converted to radians for the math.
 // `scale` is the drawing scale the preset is designed for.
 const PRESETS = {
-  articulated: {
-    label: 'Articulated RRR',
+  planar1r: {
+    label: '1R Planar Manipulator',
     scale: 10,
     joints: [
-      { type: 'R', theta: 50, d: 18, a: 0, alpha: 90 },
+      { type: 'R', theta: 45, d: 0, a: 20, alpha: 0 },
+    ],
+  },
+  planar2r: {
+    label: '2R Planar Manipulator',
+    scale: 10,
+    joints: [
       { type: 'R', theta: 60, d: 0, a: 20, alpha: 0 },
       { type: 'R', theta: -85, d: 0, a: 14, alpha: 0 },
     ],
   },
-  planar: {
-    label: 'Planar RRR',
+  planar3r: {
+    label: '3R Planar Manipulator',
     scale: 10,
     joints: [
       { type: 'R', theta: 30, d: 0, a: 20, alpha: 0 },
       { type: 'R', theta: 30, d: 0, a: 15, alpha: 0 },
       { type: 'R', theta: -40, d: 0, a: 10, alpha: 0 },
+    ],
+  },
+  spatial3r: {
+    label: '3R Spatial Manipulator',
+    scale: 10,
+    joints: [
+      { type: 'R', theta: 50, d: 18, a: 0, alpha: 90 },
+      { type: 'R', theta: 60, d: 0, a: 20, alpha: 0 },
+      { type: 'R', theta: -85, d: 0, a: 14, alpha: 0 },
     ],
   },
   scara: {
@@ -51,7 +66,7 @@ const PRESETS = {
     ],
   },
 };
-const DEFAULT_PRESET = 'articulated';
+const DEFAULT_PRESET = 'planar1r';
 const MAX_JOINTS = 8;
 
 // Length ranges are for drawing scale 1 and grow with the scale. Lengths typed into

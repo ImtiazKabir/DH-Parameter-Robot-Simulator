@@ -1,7 +1,9 @@
 # DH Robot Simulator
 
+**Live demo: <https://imtiazkabir.github.io/DH-Parameter-Robot-Simulator/>**
+
 Interactive 3D web simulator for the Denavit–Hartenberg (DH) parameters of a
-serial robot (1–8 joints, three by default) with a gripper. Built with plain JavaScript and Three.js
+serial robot (1–8 joints) with a gripper. Built with plain JavaScript and Three.js
 (loaded from a CDN), so there is no build step.
 
 ## Run
@@ -13,14 +15,21 @@ python3 -m http.server 8000
 ```
 
 Then open <http://localhost:8000>. An internet connection is needed to load Three.js.
-Open a preset directly with a URL hash: `#articulated`, `#planar`, `#scara` or `#cylindrical`.
+Open a preset directly with a URL hash: `#planar1r`, `#planar2r`, `#planar3r`, `#spatial3r`,
+`#scara` or `#cylindrical`.
 
 ## Features
 
 - For each joint, set θ, d, a, α with a slider or a number input. The model updates live.
 - Add joints with **+ Add joint** (up to 8) and remove one with its **✕** button.
-- Default: RRR with (θ, d, a, α) = (50°, 18, 0, 90°), (60°, 0, 20, 0°), (−85°, 0, 14, 0°)
-  at drawing scale 10.
+- Presets:
+  1. **1R Planar Manipulator** (the default): (θ, d, a, α) = (45°, 0, 20, 0°)
+  2. **2R Planar Manipulator**: (60°, 0, 20, 0°), (−85°, 0, 14, 0°)
+  3. **3R Planar Manipulator**: (30°, 0, 20, 0°), (30°, 0, 15, 0°), (−40°, 0, 10, 0°)
+  4. **3R Spatial Manipulator**: (50°, 18, 0, 90°), (60°, 0, 20, 0°), (−85°, 0, 14, 0°)
+  5. **SCARA RRP** and **Cylindrical RPP**
+
+  All presets use drawing scale 10. **Reset** goes back to the default.
 - Each joint can be **Revolute** (θ is the variable, drawn as an orange drum with a θ arc)
   or **Prismatic** (d is the variable, drawn as a purple sleeve with a sliding rod).
   The row for the joint variable is highlighted.
