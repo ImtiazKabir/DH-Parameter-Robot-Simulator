@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { forwardKinematics, dhMatrix, deg2rad } from './dh.js';
+import { createPresentation } from './presentation.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -116,7 +117,12 @@ const state = {
   shadowOpacity: 0.25,
   viewMode: 'single',                           // 'single' | 'multi'
   paneViews: ['top', 'iso'],                    // panes shown in multi-view
-  rotating: null,                               // index of the joint whose θ is being changed
+  rotating: null,                               // index of the joint whose θ or α is being changed
+  spinKind: 'theta',                            // which of the two: 'theta' | 'alpha'
+  showY: false,                                 // y axes of the frames (opt-in)
+  presOffset: null,    // presentation: extra θ per joint (deg) while it demonstrates a joint
+  presHighlight: null, // presentation: { joint, part: 'twist' | 'swing' }
+  presSpin: null,      // presentation: index of the joint it is turning (checker on its drum)
 };
 
 // ---------------------------------------------------------------------------
@@ -222,7 +228,7 @@ const MAT = {
   rod: new THREE.MeshStandardMaterial({ color: 0xa78bfa, metalness: 0.3, roughness: 0.35 }),
   base: new THREE.MeshStandardMaterial({ color: 0x6b7482, metalness: 0.3, roughness: 0.6 }),
   gripper: new THREE.MeshStandardMaterial({ color: 0x0d9488, metalness: 0.25, roughness: 0.4 }),
-  origin: new THREE.MeshBasicMaterial({ color: 0x1d2430 }),
+  origin: new THREE.MeshBasicMaterial({ color: 0x1d2430, depthTest: false }),
 };
 // "Spin" skin shown on a joint and its link while its θ is being changed: a
 // black-and-white checker (8 squares around the circumference), so turning —
@@ -246,10 +252,26 @@ function makeSpinTexture() {
   return t;
 }
 MAT.spin = new THREE.MeshStandardMaterial({ map: makeSpinTexture(), metalness: 0.05, roughness: 0.6 });
+// Presentation: the link that swings while its joint turns.
+MAT.swing = new THREE.MeshStandardMaterial({ color: 0x2563eb, emissive: 0x1d4ed8, emissiveIntensity: 0.35, roughness: 0.4 });
 
+// Frame axes are drawn on top of the robot (no depth test): a z axis runs
+// through the middle of its joint drum and offset link and must stay visible.
 const AXIS_MAT = Object.fromEntries(
-  Object.entries(COLORS).map(([k, c]) => [k, new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })]),
+  Object.entries(COLORS).map(([k, c]) => [k, new THREE.MeshStandardMaterial({ color: c, roughness: 0.4, depthTest: false })]),
 );
+
+// Presentation "defocus": fade the robot and the regular frames so the axes
+// being compared stand out. Original material settings are kept in userData.
+function setDefocus(on) {
+  for (const m of [...Object.values(MAT), ...Object.values(AXIS_MAT)]) {
+    if (!m.userData.orig) m.userData.orig = { transparent: m.transparent, opacity: m.opacity, depthWrite: m.depthWrite };
+    const o = m.userData.orig;
+    const next = on ? { transparent: true, opacity: Math.min(o.opacity, 0.12), depthWrite: false } : o;
+    if (m.transparent !== next.transparent) m.needsUpdate = true;
+    Object.assign(m, next);
+  }
+}
 
 // Base pedestal under frame {0} (static).
 {
@@ -306,6 +328,7 @@ function makeFrame(index, length) {
   const z = makeArrow(AXIS_MAT.z, length, 0.022);
   z.rotation.x = Math.PI / 2; // +Y -> +Z
   axes.add(x, y, z, new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 12), MAT.origin));
+  axes.traverse((m) => { m.renderOrder = 5; }); // after the robot, so they draw on top
 
   const tip = length + 0.12;
   const lx = makeLabel(`x${index}`, 'axis-label x'); lx.position.set(tip, 0, 0);
@@ -318,7 +341,7 @@ function makeFrame(index, length) {
 
   group.add(axes, name);
   scene.add(group);
-  return { group, axes, axisLabels: [lx, ly, lz] };
+  return { group, axes, axisLabels: [lx, ly, lz], yArrow: y, yLabel: ly };
 }
 
 let frames = [];
@@ -331,11 +354,20 @@ function rebuildFrames() {
 }
 
 // CSS2DRenderer ignores parent visibility, so hide the axis letters explicitly.
+// The y axes are a separate opt-in, shown only together with the frame axes.
 function applyAxesVisibility() {
+  const showY = state.showAxes && state.showY;
   frames.forEach((f) => {
     f.axes.visible = state.showAxes;
     f.axisLabels.forEach((l) => { l.visible = state.showAxes; });
+    f.yArrow.visible = showY;
+    f.yLabel.visible = showY;
   });
+  const yBox = document.getElementById('show-y');
+  if (yBox) {
+    yBox.disabled = !state.showAxes;
+    yBox.closest('.check').classList.toggle('disabled', !state.showAxes);
+  }
 }
 
 const eeLabel = makeLabel('', 'ee-label');
@@ -394,24 +426,30 @@ function buildJoint(i, Ts) {
   // Parts that turn with θ live in frame {i} rotated by θ about z_i, so a
   // patterned surface visibly spins even where the shape is symmetric.
   const rotor = frameGroup(Ts[i]);
-  rotor.matrix.multiply(new THREE.Matrix4().makeRotationZ(deg2rad(j.theta)));
-  const spin = state.rotating === i;
+  rotor.matrix.multiply(new THREE.Matrix4().makeRotationZ(deg2rad(j.theta + (state.presOffset?.[i] || 0))));
+  // Checker skin while a slider turns things: θ_i turns joint i's rotor and links;
+  // α_i turns, about x_i, the link along x_i and the next joint's drum/rod.
+  const spin = state.rotating === i && state.spinKind === 'theta';
+  const spinLinkA = spin || (state.rotating === i && state.spinKind === 'alpha');
+  const spinRotor = spin || (state.rotating === i - 1 && state.spinKind === 'alpha') || state.presSpin === i;
+  // Presentation highlight: the part that twists in place (d) or swings around (a).
+  const hl = state.presHighlight?.joint === i ? state.presHighlight.part : null;
 
   if (j.type === 'R') {
     // Revolute: rotating drum on z_{i}, d-offset is a link along z_{i}.
-    rotor.add(cylinderAlong('z', -0.22, 0.22, 0.17, spin ? MAT.spin : MAT.revolute));
-    const dLink = cylinderAlong('z', 0, d, 0.07, spin ? MAT.spin : MAT.link);
+    rotor.add(cylinderAlong('z', -0.22, 0.22, 0.17, spinRotor ? MAT.spin : MAT.revolute));
+    const dLink = cylinderAlong('z', 0, d, 0.07, spin || hl === 'twist' ? MAT.spin : MAT.link);
     if (dLink) rotor.add(dLink);
   } else {
     // Prismatic: fixed translucent sleeve + rod sliding out of it by d.
     prev.add(box(0.36, 0.36, 0.7, MAT.sleeve, 0, 0, 0.13));
     const rodStart = -0.22;
     const rodLen = d - rodStart;
-    if (rodLen > 1e-4) rotor.add(box(0.18, 0.18, rodLen, spin ? MAT.spin : MAT.rod, 0, 0, rodStart + rodLen / 2));
+    if (rodLen > 1e-4) rotor.add(box(0.18, 0.18, rodLen, spinRotor ? MAT.spin : MAT.rod, 0, 0, rodStart + rodLen / 2));
   }
 
   // a-offset: link along x_{i+1}, ending at the origin of frame {i+1}.
-  const aLink = cylinderAlong('x', -a, 0, 0.07, spin ? MAT.spin : MAT.link);
+  const aLink = cylinderAlong('x', -a, 0, 0.07, spinLinkA ? MAT.spin : hl === 'swing' ? MAT.swing : MAT.link);
   if (aLink) cur.add(aLink);
 
   const sphere = (r, x) => {
@@ -547,8 +585,8 @@ function buildDims(Ts) {
 // Real kinematics use the true lengths; the drawing uses lengths divided by the
 // drawing scale so that large values (e.g. d = 50) still fit on screen.
 function kinematics(lengthScale) {
-  return forwardKinematics(state.joints.map((j) => ({
-    theta: deg2rad(j.theta),
+  return forwardKinematics(state.joints.map((j, i) => ({
+    theta: deg2rad(j.theta + (state.presOffset?.[i] || 0)),
     d: j.d / lengthScale,
     a: j.a / lengthScale,
     alpha: deg2rad(j.alpha),
@@ -1267,10 +1305,11 @@ function buildJointCards() {
       num.step = 'any';
       row.append(label, range, num, el('span', 'unit', p.unit));
 
-      if (p.key === 'theta') {
-        // Show the spin skin while the θ slider is held, and briefly after.
-        range.addEventListener('pointerdown', () => { setSpinning(i, true); update(); });
-        const release = () => { if (state.rotating === i) setSpinning(i, false); };
+      const turns = p.key === 'theta' || p.key === 'alpha';
+      if (turns) {
+        // Show the spin skin while the θ/α slider is held, and briefly after.
+        range.addEventListener('pointerdown', () => { setSpinning(i, true, p.key); update(); });
+        const release = () => { if (state.rotating === i) setSpinning(i, false, p.key); };
         range.addEventListener('pointerup', release);
         range.addEventListener('pointercancel', release);
       }
@@ -1278,7 +1317,7 @@ function buildJointCards() {
         const v = round6(parseFloat(range.value));
         state.joints[i][p.key] = v;
         num.value = v;
-        if (p.key === 'theta') setSpinning(i);
+        if (turns) setSpinning(i, undefined, p.key);
         update();
       });
       const onNum = (commit) => {
@@ -1289,7 +1328,7 @@ function buildJointCards() {
         state.joints[i][p.key] = c;
         range.value = c;
         if (commit) num.value = c;
-        if (p.key === 'theta') setSpinning(i);
+        if (turns) setSpinning(i, undefined, p.key);
         update();
       };
       num.addEventListener('input', () => onNum(false));
@@ -1307,10 +1346,11 @@ function buildJointCards() {
 // it clears itself shortly after the last change (keyboard, typed values).
 let spinHold = false;
 let spinTimer = 0;
-function setSpinning(i, hold) {
+function setSpinning(i, hold, kind = 'theta') {
   clearTimeout(spinTimer);
   if (hold !== undefined) spinHold = hold;
   state.rotating = i;
+  state.spinKind = kind;
   if (!spinHold) {
     spinTimer = setTimeout(() => {
       state.rotating = null;
@@ -1352,6 +1392,11 @@ function syncAllUI() {
   gripRange.value = gripNum.value = state.grip;
   scaleNum.value = state.scale;
   document.getElementById('grid-info').textContent = `grid cell = ${short(0.5 * state.scale)}`;
+  const revOnly = state.joints.every((j) => j.type === 'R');
+  presentBtn.disabled = !revOnly;
+  presentBtn.title = revOnly
+    ? 'Guided walkthrough: how to read the DH parameters off this robot'
+    : 'Presentation mode works with revolute-only robots';
 }
 
 // Joint count or preset changed: rebuild cards and frames, then reframe the view.
@@ -1381,6 +1426,7 @@ function applyPreset(key) {
 }
 
 const addJointBtn = document.getElementById('add-joint');
+const presentBtn = document.getElementById('present');
 addJointBtn.addEventListener('click', () => {
   if (state.joints.length >= MAX_JOINTS) return;
   // New revolute joint with a one-drawn-unit link so it is visible right away.
@@ -1451,6 +1497,7 @@ const VIEW_TOGGLES = {
   'show-ee': ['showEE', () => { eeLabel.visible = state.showEE; }],
   'show-dims': ['showDims', () => update()],
   'show-axes': ['showAxes', () => applyAxesVisibility()],
+  'show-y': ['showY', () => applyAxesVisibility()],
   'show-labels': ['showLabels', () => viewport.classList.toggle('hide-labels', !state.showLabels)],
   'show-grid': ['showGrid', () => { grid.visible = state.showGrid; }],
   'show-shadow': ['showShadow', () => {
@@ -1459,6 +1506,13 @@ const VIEW_TOGGLES = {
     shadowRange.closest('.row').classList.toggle('disabled', !state.showShadow);
   }],
 };
+// Set a view toggle programmatically (keeps state, checkbox and scene in sync).
+function setToggle(id, on) {
+  const [key, apply] = VIEW_TOGGLES[id];
+  state[key] = on;
+  document.getElementById(id).checked = on;
+  apply();
+}
 const shadowRange = document.getElementById('shadow-opacity');
 const shadowOut = document.getElementById('shadow-opacity-out');
 shadowRange.value = state.shadowOpacity;
@@ -1695,6 +1749,22 @@ function animate(now) {
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
 }
+
+// ---------------------------------------------------------------------------
+// Presentation mode (js/presentation.js)
+// ---------------------------------------------------------------------------
+
+const presentation = createPresentation({
+  state, scene, COLORS, DIM_COLORS, VIEW_TOGGLES, ISO_DIR, orthoCam, target,
+  makeLabel, makeArrow, clearGroup, update, robotBox, setDefocus, setToggle,
+  setViewMode, setProjection, setPanelCollapsed, setOrthoHalfHeight,
+  short,
+  getCamera: () => camera,
+  getAspect: () => aspect,
+  drawnTransforms: () => kinematics(state.scale),
+  isRevoluteOnly: () => state.joints.every((j) => j.type === 'R'),
+});
+presentBtn.addEventListener('click', () => presentation.enter());
 
 buildPresetButtons();
 // Optional preset via URL hash, e.g. index.html#scara

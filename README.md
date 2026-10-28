@@ -34,7 +34,8 @@ Open a preset directly with a URL hash: `#planar1r`, `#planar2r`, `#planar3r`, `
   or **Prismatic** (d is the variable, drawn as a purple sleeve with a sliding rod).
   The row for the joint variable is highlighted.
 - **Rotation cue**: while you drag a θ slider (or edit a θ value), that joint and its link turn
-  into a black-and-white checker pattern. This makes the turning easy to see, even for parts
+  into a black-and-white checker pattern. The α slider does the same for what it turns about xᵢ:
+  the link along xᵢ and the next joint's drum. This makes the turning easy to see, even for parts
   that spin about their own axis, like the base column. The pattern goes away about half a
   second after you stop.
 - **Projection on the XY plane** (opt-in, under "Drawing & view"): a soft shadow of the robot cast
@@ -46,6 +47,8 @@ Open a preset directly with a URL hash: `#planar1r`, `#planar2r`, `#planar3r`, `
   page.
 - View options start minimal: only the ground grid is shown. Turn on the EE coordinates, DH
   dimensions, frame axes and frame labels under "Drawing & view".
+- Frame axes are drawn on top of the robot, so a z axis running through a joint or an offset
+  link stays visible. The y axes are opt-in ("Show y axes", under "Show frame axes").
 - Frames {0}–{3} are drawn with the usual colors: **X red, Y green, Z blue**.
 - **Drawing scale**: 1 drawn unit = S real units. This lets large values (e.g. d = 50)
   fit on screen; the slider ranges grow with S. **Auto** picks a scale that fits the robot.
@@ -85,6 +88,38 @@ Open a preset directly with a URL hash: `#planar1r`, `#planar2r`, `#planar3r`, `
   - Colored guide lines show the locked axes. A locked rotation may roll the view; the view
     cube or Iso brings it back level.
 
+## Presentation mode: "Learn DH"
+
+**▶ Learn DH** (canvas toolbar) starts a guided, animated walkthrough of how to read the DH
+parameters off the loaded robot. It works with revolute-only robots; the button is disabled
+otherwise. It runs in six steps, with one part per joint:
+
+1. **Joint offsets dᵢ**: each joint turns back and forth, with its drum checkered so the turning
+   shows. The part that twists in place about the joint's own axis is checkered too and then
+   measured. If nothing twists, dᵢ = 0.
+2. **Link lengths aᵢ**: the same, but highlighting the link that swings around the axis
+   (its path is traced). If nothing swings, aᵢ = 0.
+3. **z axes**: each joint's rotation axis gets its z arrow. Rule 1: along the offset if there is
+   one. Rule 2: either way along the axis otherwise. The end-effector frame's z is a free choice.
+4. **x axes**: Rule 1: along the link when aᵢ > 0. Rule 2: perpendicular to both zᵢ₋₁ and zᵢ
+   when aᵢ = 0. Here zᵢ₋₁ slides to where it meets zᵢ, and right-angle marks show that both
+   ±(zᵢ₋₁ × zᵢ) candidates are perpendicular to both axes.
+
+   Wherever a rule allows more than one answer, every option is shown before one is chosen.
+   Two directions are shown as ghost arrows ("option 1 / option 2"). For any direction around
+   an axis (x₀, or collinear axes), a ghost sweeps around a dashed ring. Axes are drawn on top of
+   the robot, so a z axis inside a joint or offset link stays visible. The y axes aren't shown.
+5. **Link twists αᵢ**: zᵢ₋₁ slides along xᵢ to meet zᵢ, everything else fades, the camera looks
+   straight down xᵢ, and an arc measures the angle.
+6. **Joint angles θᵢ**: xᵢ₋₁ and xᵢ slide together on zᵢ₋₁, the camera looks straight down zᵢ₋₁,
+   and an arc measures the angle.
+
+A DH table fills in as you go; it can be hidden. The card shows the current step, the rule in
+use and how it applies here. Controls: **Next ▶** (→), **◀ Back** (←), **⟲ Rewatch** (R),
+**✕ Exit** (Esc). Click a step chip or a part dot to jump anywhere. You can still drag to look
+around. Wherever a rule leaves a free choice, the walkthrough picks the model's direction, so the
+finished table matches the sidebar's DH table. Exiting restores your view and settings.
+
 ## Convention
 
 This uses the standard (distal) DH convention. Joint i moves about or along z₍ᵢ₋₁₎:
@@ -100,4 +135,5 @@ The gripper is mounted at the last frame {n}, with its fingers pointing along x�
 
 - `js/dh.js`: the DH matrix and forward kinematics (no Three.js)
 - `js/main.js`: the scene, robot drawing, UI and readouts
+- `js/presentation.js`: the "Learn DH" presentation mode
 - `index.html`, `style.css`: layout and styles

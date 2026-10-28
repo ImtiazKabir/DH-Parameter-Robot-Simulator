@@ -48,6 +48,7 @@
       <label class="check"><input id="show-ee" type="checkbox" autocomplete="off" /> Show end-effector coordinates on canvas</label>
       <label class="check"><input id="show-dims" type="checkbox" autocomplete="off" /> Show DH parameters on canvas</label>
       <label class="check"><input id="show-axes" type="checkbox" autocomplete="off" /> Show frame axes</label>
+      <label class="check sub-check"><input id="show-y" type="checkbox" autocomplete="off" /> Show y axes</label>
       <label class="check"><input id="show-labels" type="checkbox" autocomplete="off" /> Show frame labels</label>
       <label class="check"><input id="show-grid" type="checkbox" checked autocomplete="off" /> Show ground grid</label>
       <label class="check"><input id="show-shadow" type="checkbox" autocomplete="off" /> Show projection on XY plane</label>
@@ -83,6 +84,7 @@
       <button id="fit-view" class="overlay tool-btn wide" title="Frame the whole robot">Fit view</button>
       <button id="save-image" class="overlay tool-btn" title="Save the current view as a PNG">Save image</button>
       <button id="copy-image" class="overlay tool-btn" title="Copy the current view to the clipboard">Copy image</button>
+      <button id="present" class="overlay tool-btn present-btn">▶ Learn DH</button>
       <div id="view-mode" class="seg proj" role="group" aria-label="View mode">
         <button data-mode="single" title="One view you can orbit">Single</button>
         <button data-mode="multi" title="Several fixed-angle panes (pan and zoom only)">Multi-view</button>
@@ -137,6 +139,33 @@
       </div>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <!-- Presentation mode -->
+    <div id="pres" class="pres" hidden>
+      <div class="pres-top">
+        <div id="pres-steps" class="pres-steps" role="group" aria-label="Steps"></div>
+        <div id="pres-dots" class="pres-dots" role="group" aria-label="Parts of this step"></div>
+      </div>
+      <section class="pres-card" aria-live="polite">
+        <div id="pres-kicker" class="pres-kicker"></div>
+        <h3 id="pres-title" class="pres-title"></h3>
+        <div id="pres-body" class="pres-body"></div>
+        <div class="pres-controls">
+          <button id="pres-back" title="Previous (←)">◀ Back</button>
+          <button id="pres-rewatch" title="Play this part again (R)">⟲ Rewatch</button>
+          <button id="pres-next" class="primary" title="Next (→)">Next ▶</button>
+          <button id="pres-exit" class="ghost" title="Leave the presentation (Esc)">✕ Exit</button>
+        </div>
+      </section>
+    </div>
+    <div id="pres-table" class="pres-table" hidden>
+      <div class="pres-table-head">
+        <span>DH table</span>
+        <button id="pres-table-toggle" class="ghost">Hide</button>
+      </div>
+      <table id="pres-dh"></table>
+      <p class="note">* joint variable</p>
+    </div>
     <div id="hint" class="overlay hint">Drag: rotate · Right/Shift-drag: pan · Scroll: zoom</div>
   </main>
 
