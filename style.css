@@ -78,7 +78,27 @@ header h1 { margin: 0; font-size: 18px; }
 .card-head h2 { margin: 0; }
 .card-tools { display: flex; align-items: center; gap: 6px; }
 
-.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets { display: flex; flex-direction: column; gap: 8px; }
+.preset-group summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.preset-group summary .muted { font-weight: 600; }
+.preset-list { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.preset-btn { text-align: left; padding: 5px 8px; line-height: 1.25; }
+.preset-btn b { color: var(--muted); margin-right: 2px; }
+.preset-btn.active { color: #fff; background: #1d2430; border-color: #1d2430; }
+.preset-btn.active b { color: #c9d1dc; }
+.preset-reset { align-self: flex-start; }
+.preset-note {
+  margin-top: 10px;
+  padding: 9px 11px;
+  background: #eef4ff;
+  border: 1px solid #d3e1fb;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.preset-note-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; }
+.preset-nav { display: flex; gap: 4px; }
+.preset-nav button { padding: 1px 8px; }
+.preset-note p { margin: 4px 0 0; line-height: 1.45; }
 
 button {
   font: inherit;

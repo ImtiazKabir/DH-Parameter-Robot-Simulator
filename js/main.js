@@ -14,43 +14,186 @@ const DIM_COLORS = { theta: '#d97706', d: '#7c3aed', a: '#0891b2', alpha: '#db27
 
 // Angles are in degrees in the UI/state; converted to radians for the math.
 // `scale` is the drawing scale the preset is designed for.
+// Presets: the main robots (shown by default), then lessons that introduce one
+// idea at a time (all revolute, for ▶ Learn DH) and exercises for tricky cases.
+// `scale` is the drawing scale the preset is designed for.
 const PRESETS = {
   planar1r: {
-    label: '1R Planar Manipulator',
-    scale: 10,
+    group: 'robots', tag: '', label: '1R Planar Manipulator', scale: 10,
+    note: `One joint, one link. Turn θ<sub>1</sub>: the link <b>swings around</b> the joint axis z<sub>0</sub>, and its length is the <b>link length a<sub>1</sub></b>. Nothing twists in place, so d<sub>1</sub> = 0.`,
     joints: [
       { type: 'R', theta: 45, d: 0, a: 20, alpha: 0 },
     ],
   },
+  'l-1r': {
+    group: 'lesson', tag: 'L1', label: '1R · link length a', scale: 10,
+    note: `One joint, one link. Turn θ<sub>1</sub>: the link <b>swings around</b> the joint axis z<sub>0</sub>, and its length is the <b>link length a<sub>1</sub></b>. Nothing twists in place, so d<sub>1</sub> = 0.`,
+    joints: [
+      { type: 'R', theta: 45, d: 0, a: 20, alpha: 0 },
+    ],
+  },
+  offset1r: {
+    group: 'lesson', tag: 'L2', label: '1R · joint offset d', scale: 10,
+    note: `Now the joint sits on a column. Turn θ<sub>1</sub>: the column only <b>twists in place</b> about z<sub>0</sub> — its length is the <b>joint offset d<sub>1</sub></b> — while the arm still swings (a<sub>1</sub>).`,
+    joints: [
+      { type: 'R', theta: 30, d: 15, a: 20, alpha: 0 },
+    ],
+  },
   planar2r: {
-    label: '2R Planar Manipulator',
-    scale: 10,
+    group: 'robots', tag: '', label: '2R Planar Manipulator', scale: 10,
+    note: `Two joints with parallel axes. Each joint adds its own θ and a; parallel axes mean <b>no twist</b>, α = 0. Note that θ<sub>2</sub> is measured from x<sub>1</sub>, not from the ground.`,
+    joints: [
+      { type: 'R', theta: 60, d: 0, a: 20, alpha: 0 },
+      { type: 'R', theta: -85, d: 0, a: 14, alpha: 0 },
+    ],
+  },
+  'l-2r': {
+    group: 'lesson', tag: 'L3', label: '2R planar', scale: 10,
+    note: `Two joints with parallel axes. Each joint adds its own θ and a; parallel axes mean <b>no twist</b>, α = 0. Note that θ<sub>2</sub> is measured from x<sub>1</sub>, not from the ground.`,
     joints: [
       { type: 'R', theta: 60, d: 0, a: 20, alpha: 0 },
       { type: 'R', theta: -85, d: 0, a: 14, alpha: 0 },
     ],
   },
   planar3r: {
-    label: '3R Planar Manipulator',
-    scale: 10,
+    group: 'robots', tag: '', label: '3R Planar Manipulator', scale: 10,
+    note: `A three-link chain in one plane. Every row of the table follows the same pattern as L3; the end-effector pose is the product A<sub>1</sub>A<sub>2</sub>A<sub>3</sub>.`,
     joints: [
       { type: 'R', theta: 30, d: 0, a: 20, alpha: 0 },
       { type: 'R', theta: 30, d: 0, a: 15, alpha: 0 },
       { type: 'R', theta: -40, d: 0, a: 10, alpha: 0 },
     ],
   },
+  'l-3r': {
+    group: 'lesson', tag: 'L4', label: '3R planar', scale: 10,
+    note: `A three-link chain in one plane. Every row of the table follows the same pattern as L3; the end-effector pose is the product A<sub>1</sub>A<sub>2</sub>A<sub>3</sub>.`,
+    joints: [
+      { type: 'R', theta: 30, d: 0, a: 20, alpha: 0 },
+      { type: 'R', theta: 30, d: 0, a: 15, alpha: 0 },
+      { type: 'R', theta: -40, d: 0, a: 10, alpha: 0 },
+    ],
+  },
+  twist: {
+    group: 'lesson', tag: 'L5', label: 'Link twist α · axes meet', scale: 10,
+    note: `z<sub>0</sub> is vertical, z<sub>1</sub> is horizontal: the <b>link twist α<sub>1</sub> = 90°</b>. The two axes <b>intersect</b>, so a<sub>1</sub> = 0 and x<sub>1</sub> is chosen perpendicular to both (x Rule 2).`,
+    joints: [
+      { type: 'R', theta: 30, d: 15, a: 0, alpha: 90 },
+      { type: 'R', theta: 45, d: 0, a: 20, alpha: 0 },
+    ],
+  },
+  twistskew: {
+    group: 'lesson', tag: 'L6', label: 'Link twist α · skew axes', scale: 10,
+    note: `Again α<sub>1</sub> = 90°, but now the axes <b>do not meet</b>. a<sub>1</sub> is the length of the <b>common normal</b> — the shortest line between z<sub>0</sub> and z<sub>1</sub> — and x<sub>1</sub> runs along it.`,
+    joints: [
+      { type: 'R', theta: 0, d: 12, a: 15, alpha: 90 },
+      { type: 'R', theta: 30, d: 0, a: 15, alpha: 0 },
+    ],
+  },
   spatial3r: {
-    label: '3R Spatial Manipulator',
-    scale: 10,
+    group: 'robots', tag: '', label: '3R Spatial Manipulator', scale: 10,
+    note: `Everything together: a base offset d<sub>1</sub>, a 90° twist into the vertical plane, then two parallel links. This is the classic articulated (elbow) arm.`,
     joints: [
       { type: 'R', theta: 50, d: 18, a: 0, alpha: 90 },
       { type: 'R', theta: 60, d: 0, a: 20, alpha: 0 },
       { type: 'R', theta: -85, d: 0, a: 14, alpha: 0 },
     ],
   },
+  'l-spatial': {
+    group: 'lesson', tag: 'L7', label: '3R spatial (elbow arm)', scale: 10,
+    note: `Everything together: a base offset d<sub>1</sub>, a 90° twist into the vertical plane, then two parallel links. This is the classic articulated (elbow) arm.`,
+    joints: [
+      { type: 'R', theta: 50, d: 18, a: 0, alpha: 90 },
+      { type: 'R', theta: 60, d: 0, a: 20, alpha: 0 },
+      { type: 'R', theta: -85, d: 0, a: 14, alpha: 0 },
+    ],
+  },
+  'ex-negtwist': {
+    group: 'exercise', tag: 'E1', label: 'Negative twist α = −90°', scale: 10,
+    note: `Same shape as L5, but z<sub>1</sub> points the other way: α<sub>1</sub> = −90°. Measure from z<sub>0</sub> to z<sub>1</sub> about x<sub>1</sub> — the sign matters.`,
+    joints: [
+      { type: 'R', theta: 30, d: 15, a: 0, alpha: -90 },
+      { type: 'R', theta: 45, d: 0, a: 20, alpha: 0 },
+    ],
+  },
+  'ex-antiparallel': {
+    group: 'exercise', tag: 'E2', label: 'Anti-parallel axes α = 180°', scale: 10,
+    note: `z<sub>1</sub> points straight down, opposite to z<sub>0</sub>: α<sub>1</sub> = 180°. Seen from above, joint 2 now turns clockwise for a positive θ<sub>2</sub>.`,
+    joints: [
+      { type: 'R', theta: 0, d: 15, a: 20, alpha: 180 },
+      { type: 'R', theta: 45, d: 0, a: 15, alpha: 0 },
+    ],
+  },
+  'ex-twist45': {
+    group: 'exercise', tag: 'E3', label: 'Oblique twist α = 45°', scale: 10,
+    note: `Twists need not be multiples of 90°: z<sub>1</sub> is tilted 45° from z<sub>0</sub> about x<sub>1</sub>.`,
+    joints: [
+      { type: 'R', theta: 30, d: 12, a: 0, alpha: 45 },
+      { type: 'R', theta: 30, d: 0, a: 18, alpha: 0 },
+    ],
+  },
+  'ex-collinear': {
+    group: 'exercise', tag: 'E4', label: 'Collinear axes · x is free', scale: 10,
+    note: `z<sub>0</sub> and z<sub>1</sub> lie on <b>one line</b>: a<sub>1</sub> = 0 and α<sub>1</sub> = 0, and x<sub>1</sub> may point in <b>any</b> direction perpendicular to that line.`,
+    joints: [
+      { type: 'R', theta: 30, d: 10, a: 0, alpha: 0 },
+      { type: 'R', theta: 45, d: 10, a: 18, alpha: 0 },
+    ],
+  },
+  'ex-shoulder': {
+    group: 'exercise', tag: 'E5', label: 'Offset on a later joint', scale: 10,
+    note: `Joint 2 has a sideways offset d<sub>2</sub> = 6 along its own axis z<sub>1</sub> (a "shoulder offset", as on a PUMA). Offsets are not only vertical.`,
+    joints: [
+      { type: 'R', theta: 0, d: 15, a: 0, alpha: 90 },
+      { type: 'R', theta: 30, d: 6, a: 20, alpha: 0 },
+      { type: 'R', theta: -60, d: 0, a: 14, alpha: 0 },
+    ],
+  },
+  'ex-negoffset': {
+    group: 'exercise', tag: 'E6', label: 'Negative offset d < 0', scale: 10,
+    note: `Same as E5, but z<sub>1</sub> points <b>against</b> the offset, so d<sub>2</sub> = −6. Flipping z<sub>1</sub> (z Rule 1) would make it positive — and change α<sub>1</sub> and θ<sub>2</sub>.`,
+    joints: [
+      { type: 'R', theta: 0, d: 15, a: 0, alpha: 90 },
+      { type: 'R', theta: 30, d: -6, a: 20, alpha: 0 },
+      { type: 'R', theta: -60, d: 0, a: 14, alpha: 0 },
+    ],
+  },
+  'ex-wrist': {
+    group: 'exercise', tag: 'E7', label: 'Intersecting axes (wrist)', scale: 10,
+    note: `A spherical-wrist style chain: every a = 0 and the three axes meet at one point. Each x is chosen perpendicular to two intersecting z axes (x Rule 2), and the twists alternate ±90°.`,
+    joints: [
+      { type: 'R', theta: 0, d: 12, a: 0, alpha: -90 },
+      { type: 'R', theta: 30, d: 0, a: 0, alpha: 90 },
+      { type: 'R', theta: 45, d: 8, a: 0, alpha: 0 },
+    ],
+  },
+  'ex-tooltilt': {
+    group: 'exercise', tag: 'E8', label: 'Tilted tool frame', scale: 10,
+    note: `A 2R planar arm whose last twist is α<sub>2</sub> = 90°. It does not move the end effector — it only tilts the tool frame, so z<sub>2</sub> is no longer parallel to z<sub>1</sub>.`,
+    joints: [
+      { type: 'R', theta: 30, d: 0, a: 20, alpha: 0 },
+      { type: 'R', theta: 30, d: 0, a: 15, alpha: 90 },
+    ],
+  },
+  'ex-general': {
+    group: 'exercise', tag: 'E9', label: 'General skew chain', scale: 10,
+    note: `The general case: every joint has an offset, a link length and an odd twist. Find each common normal carefully.`,
+    joints: [
+      { type: 'R', theta: 20, d: 12, a: 8, alpha: 60 },
+      { type: 'R', theta: -40, d: 5, a: 15, alpha: -30 },
+      { type: 'R', theta: 70, d: 0, a: 10, alpha: 0 },
+    ],
+  },
+  'ex-prismatic': {
+    group: 'exercise', tag: 'E10', label: 'Prismatic joint (RP)', scale: 10,
+    note: `Joint 2 slides instead of turning: <b>d<sub>2</sub> is the joint variable</b> and θ<sub>2</sub> stays fixed. (▶ Learn DH covers revolute joints only.)`,
+    joints: [
+      { type: 'R', theta: 30, d: 12, a: 0, alpha: 90 },
+      { type: 'P', theta: 0, d: 10, a: 0, alpha: 0 },
+    ],
+  },
   scara: {
-    label: 'SCARA RRP',
-    scale: 10,
+    group: 'robots', tag: '', label: 'SCARA RRP', scale: 10,
+    note: `Two parallel revolute joints for the horizontal plane, then a vertical prismatic joint (α<sub>2</sub> = 180° points z<sub>2</sub> down).`,
     joints: [
       { type: 'R', theta: 0, d: 15, a: 20, alpha: 0 },
       { type: 'R', theta: 45, d: 0, a: 15, alpha: 180 },
@@ -58,15 +201,29 @@ const PRESETS = {
     ],
   },
   cylindrical: {
-    label: 'Cylindrical RPP',
-    scale: 10,
+    group: 'robots', tag: '', label: 'Cylindrical RPP', scale: 10,
+    note: `A rotating base, then a vertical and a radial prismatic joint: the reachable space is a cylinder.`,
     joints: [
       { type: 'R', theta: 30, d: 10, a: 0, alpha: 0 },
       { type: 'P', theta: 0, d: 12, a: 0, alpha: -90 },
       { type: 'P', theta: 0, d: 15, a: 0, alpha: 0 },
     ],
   },
+  stanford: {
+    group: 'robots', tag: '', label: 'Stanford RRP', scale: 10,
+    note: `Spherical (polar) arm: two revolute joints aim the arm, a prismatic joint extends it.`,
+    joints: [
+      { type: 'R', theta: 0, d: 12, a: 0, alpha: -90 },
+      { type: 'R', theta: 30, d: 4, a: 0, alpha: 90 },
+      { type: 'P', theta: 0, d: 10, a: 0, alpha: 0 },
+    ],
+  },
 };
+const PRESET_GROUPS = [
+  ['robots', 'Robots'],
+  ['lesson', 'Lessons'],
+  ['exercise', 'Exercises'],
+];
 const DEFAULT_PRESET = 'planar1r';
 const MAX_JOINTS = 8;
 
@@ -1254,16 +1411,69 @@ function el(tag, className, html) {
   return e;
 }
 
+// Grouped preset buttons (collapsible groups) plus a note about the active preset.
+const presetUI = { buttons: {}, groups: {} };
+let activePreset = null;
+let presetEdited = false;
+
 function buildPresetButtons() {
   const host = document.getElementById('presets');
-  for (const [key, p] of Object.entries(PRESETS)) {
-    const b = el('button', '', p.label);
-    b.addEventListener('click', () => applyPreset(key));
-    host.append(b);
+  for (const [group, title] of PRESET_GROUPS) {
+    const keys = Object.keys(PRESETS).filter((k) => PRESETS[k].group === group);
+    const det = el('details', 'preset-group');
+    det.open = group === 'robots';
+    det.append(el('summary', '', `${title} <span class="muted">${keys.length}</span>`));
+    const list = el('div', 'preset-list');
+    for (const key of keys) {
+      const p = PRESETS[key];
+      const b = el('button', 'preset-btn', `${p.tag ? `<b>${p.tag}</b> ` : ''}${p.label}`);
+      b.title = p.note.replace(/<[^>]+>/g, '');
+      b.addEventListener('click', () => applyPreset(key));
+      list.append(b);
+      presetUI.buttons[key] = b;
+    }
+    det.append(list);
+    host.append(det);
+    presetUI.groups[group] = det;
   }
-  const reset = el('button', '', 'Reset');
+  const reset = el('button', 'preset-reset', 'Reset');
+  reset.title = 'Back to the 1R planar manipulator';
   reset.addEventListener('click', () => applyPreset(DEFAULT_PRESET));
   host.append(reset);
+  document.getElementById('preset-prev').addEventListener('click', () => stepPreset(-1));
+  document.getElementById('preset-next').addEventListener('click', () => stepPreset(1));
+}
+
+// Previous / next preset within the active preset's group.
+function stepPreset(dir) {
+  if (!activePreset) return;
+  const keys = Object.keys(PRESETS).filter((k) => PRESETS[k].group === PRESETS[activePreset].group);
+  const k = keys.indexOf(activePreset) + dir;
+  if (k >= 0 && k < keys.length) applyPreset(keys[k]);
+}
+
+function syncPresetNote() {
+  const box = document.getElementById('preset-note');
+  for (const [key, b] of Object.entries(presetUI.buttons)) b.classList.toggle('active', key === activePreset);
+  if (!activePreset) { box.hidden = true; return; }
+  const p = PRESETS[activePreset];
+  const keys = Object.keys(PRESETS).filter((k) => PRESETS[k].group === p.group);
+  const idx = keys.indexOf(activePreset);
+  box.hidden = false;
+  document.getElementById('preset-note-title').innerHTML =
+    `${p.tag ? `${p.tag} · ` : ''}${p.label}${presetEdited ? ' <span class="muted">(edited)</span>' : ''}`;
+  document.getElementById('preset-note-body').innerHTML = p.note;
+  document.getElementById('preset-prev').disabled = idx <= 0;
+  document.getElementById('preset-next').disabled = idx >= keys.length - 1;
+  presetUI.groups[p.group].open = true;
+}
+
+// Called when the student changes the robot by hand.
+function markEdited() {
+  if (activePreset && !presetEdited) {
+    presetEdited = true;
+    syncPresetNote();
+  }
 }
 
 function buildJointCards() {
@@ -1318,6 +1528,7 @@ function buildJointCards() {
         state.joints[i][p.key] = v;
         num.value = v;
         if (turns) setSpinning(i, undefined, p.key);
+        markEdited();
         update();
       });
       const onNum = (commit) => {
@@ -1329,6 +1540,7 @@ function buildJointCards() {
         range.value = c;
         if (commit) num.value = c;
         if (turns) setSpinning(i, undefined, p.key);
+        markEdited();
         update();
       };
       num.addEventListener('input', () => onNum(false));
@@ -1412,6 +1624,7 @@ function structureChanged() {
 }
 
 function setJointType(i, type) {
+  markEdited();
   const j = state.joints[i];
   j.type = type;
   if (type === 'P' && j.d < 0) j.d = 0;
@@ -1422,12 +1635,16 @@ function setJointType(i, type) {
 function applyPreset(key) {
   state.joints = clone(PRESETS[key].joints);
   state.scale = PRESETS[key].scale;
+  activePreset = key;
+  presetEdited = false;
+  syncPresetNote();
   structureChanged();
 }
 
 const addJointBtn = document.getElementById('add-joint');
 const presentBtn = document.getElementById('present');
 addJointBtn.addEventListener('click', () => {
+  markEdited();
   if (state.joints.length >= MAX_JOINTS) return;
   // New revolute joint with a one-drawn-unit link so it is visible right away.
   state.joints.push({ type: 'R', theta: 0, d: 0, a: state.scale, alpha: 0 });
@@ -1436,6 +1653,7 @@ addJointBtn.addEventListener('click', () => {
 
 function deleteJoint(i) {
   if (state.joints.length <= 1) return;
+  markEdited();
   state.joints.splice(i, 1);
   structureChanged();
 }
@@ -1769,10 +1987,10 @@ presentBtn.addEventListener('click', () => presentation.enter());
 buildPresetButtons();
 // Optional preset via URL hash, e.g. index.html#scara
 const hashPreset = location.hash.slice(1);
-if (PRESETS[hashPreset]) {
-  state.joints = clone(PRESETS[hashPreset].joints);
-  state.scale = PRESETS[hashPreset].scale;
-}
+activePreset = PRESETS[hashPreset] ? hashPreset : DEFAULT_PRESET;
+state.joints = clone(PRESETS[activePreset].joints);
+state.scale = PRESETS[activePreset].scale;
+syncPresetNote();
 resize();
 setProjection('ortho');
 syncLockUI();

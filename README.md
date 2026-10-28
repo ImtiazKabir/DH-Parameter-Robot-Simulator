@@ -15,21 +15,27 @@ python3 -m http.server 8000
 ```
 
 Then open <http://localhost:8000>. An internet connection is needed to load Three.js.
-Open a preset directly with a URL hash: `#planar1r`, `#planar2r`, `#planar3r`, `#spatial3r`,
-`#scara` or `#cylindrical`.
+Open a preset directly with a URL hash, e.g. `#planar2r`, `#twist`, `#ex-wrist` or `#scara`
+(the keys are listed in `PRESETS` in `js/main.js`).
 
 ## Features
 
 - For each joint, set θ, d, a, α with a slider or a number input. The model updates live.
 - Add joints with **+ Add joint** (up to 8) and remove one with its **✕** button.
-- Presets:
-  1. **1R Planar Manipulator** (the default): (θ, d, a, α) = (45°, 0, 20, 0°)
-  2. **2R Planar Manipulator**: (60°, 0, 20, 0°), (−85°, 0, 14, 0°)
-  3. **3R Planar Manipulator**: (30°, 0, 20, 0°), (30°, 0, 15, 0°), (−40°, 0, 10, 0°)
-  4. **3R Spatial Manipulator**: (50°, 18, 0, 90°), (60°, 0, 20, 0°), (−85°, 0, 14, 0°)
-  5. **SCARA RRP** and **Cylindrical RPP**
+- **Presets**, in three groups. Each one shows a short "what to notice" note in the sidebar, with
+  ◀ ▶ buttons to step through its group. The note is marked *(edited)* once you change the robot.
+  - **Robots** (open by default): 1R Planar Manipulator (the default), 2R Planar Manipulator,
+    3R Planar Manipulator, 3R Spatial Manipulator, SCARA RRP, Cylindrical RPP, Stanford RRP.
+  - **Lessons** (collapsed) introduce one idea at a time. All are revolute, so ▶ Learn DH works
+    on each: L1 1R link length a · L2 1R joint offset d · L3 2R planar · L4 3R planar ·
+    L5 link twist α with intersecting axes · L6 link twist α with skew axes (common normal) ·
+    L7 3R spatial elbow arm.
+  - **Exercises** (collapsed) each target one tricky case: E1 negative twist · E2 anti-parallel
+    axes (α = 180°) · E3 oblique twist (45°) · E4 collinear axes (x is free) · E5 offset on a later
+    joint · E6 negative offset · E7 intersecting wrist axes · E8 tilted tool frame ·
+    E9 general skew chain · E10 prismatic joint.
 
-  All presets use drawing scale 10. **Reset** goes back to the default.
+  All presets use drawing scale 10. **Reset** goes back to the 1R planar manipulator.
 - Each joint can be **Revolute** (θ is the variable, drawn as an orange drum with a θ arc)
   or **Prismatic** (d is the variable, drawn as a purple sleeve with a sliding rod).
   The row for the joint variable is highlighted.
