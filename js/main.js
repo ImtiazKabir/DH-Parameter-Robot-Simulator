@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { forwardKinematics, dhMatrix, deg2rad } from './dh.js';
 import { createPresentation } from './presentation.js';
 import { createCompare } from './compare.js';
@@ -2119,7 +2122,7 @@ function addOutline(o) {
   o.add(edges, hull);
 }
 
-const skipPrint = (o) => o === grid || o.parent === grid || o.material?.isShadowMaterial || Array.isArray(o.material);
+const skipPrint = (o) => o.userData.captureLine || o === grid || o.parent === grid || o.material?.isShadowMaterial || Array.isArray(o.material);
 
 function syncPrint() {
   if (!state.printMode) return;
@@ -2271,24 +2274,111 @@ function paintElement(ctx, el, ox, oy) {
   }
 }
 
-// Render now and composite canvas + labels. Single view: the whole canvas;
-// multi-view: just the pane grid, with pane borders and titles.
-function captureImage() {
-  renderNow();
+// WebGL draws plain lines 1 device pixel wide, so in a high-resolution export
+// they would come out hair-thin. While exporting, every visible line gets a
+// "fat line" twin (same colour/dash/opacity/draw order, 1 CSS px wide at any
+// resolution); the original is moved off the camera layer until restore.
+const _fatViewport = new THREE.Vector4();
+function fattenLines() {
+  const made = [];
+  scene.traverseVisible((o) => {
+    if (!o.isLine || o.userData.captureLine) return;
+    const pos = o.geometry.getAttribute('position');
+    if (!pos || pos.count < 2) return;
+    const col = o.geometry.getAttribute('color');
+    const idx = o.geometry.index;
+    const at = (k) => (idx ? idx.getX(k) : k);
+    const n = idx ? idx.count : pos.count;
+    const pairs = [];
+    if (o.isLineSegments) for (let k = 0; k + 1 < n; k += 2) pairs.push(at(k), at(k + 1));
+    else {
+      for (let k = 0; k + 1 < n; k++) pairs.push(at(k), at(k + 1));
+      if (o.isLineLoop) pairs.push(at(n - 1), at(0));
+    }
+    const P = new Float32Array(pairs.length * 3);
+    pairs.forEach((v, j) => { P[3 * j] = pos.getX(v); P[3 * j + 1] = pos.getY(v); P[3 * j + 2] = pos.getZ(v); });
+    const geo = new LineSegmentsGeometry().setPositions(P);
+    const m = o.material;
+    const vc = !!(m.vertexColors && col);
+    if (vc) {
+      const C = new Float32Array(pairs.length * 3);
+      pairs.forEach((v, j) => { C[3 * j] = col.getX(v); C[3 * j + 1] = col.getY(v); C[3 * j + 2] = col.getZ(v); });
+      geo.setColors(C);
+    }
+    const mat = new LineMaterial({
+      color: vc ? 0xffffff : m.color.getHex(),
+      vertexColors: vc,
+      linewidth: 1, // CSS px, scaled with the export resolution
+      transparent: m.transparent,
+      opacity: m.opacity,
+      depthTest: m.depthTest,
+      depthWrite: m.depthWrite,
+      dashed: !!m.isLineDashedMaterial,
+      dashSize: m.dashSize ?? 1,
+      gapSize: m.gapSize ?? 1,
+    });
+    const fat = new LineSegments2(geo, mat);
+    if (mat.dashed) fat.computeLineDistances();
+    fat.renderOrder = o.renderOrder;
+    fat.userData.captureLine = true;
+    fat.raycast = () => {};
+    // linewidth is measured against `resolution`: the viewport being drawn (CSS px)
+    fat.onBeforeRender = (r) => {
+      r.getViewport(_fatViewport);
+      mat.resolution.set(_fatViewport.z, _fatViewport.w);
+    };
+    o.add(fat);
+    made.push({ o, fat, layers: o.layers.mask });
+    o.layers.set(31); // hide the thin original (its children still render)
+  });
+  return () => made.forEach(({ o, fat, layers }) => {
+    o.remove(fat);
+    fat.geometry.dispose();
+    fat.material.dispose();
+    o.layers.mask = layers;
+  });
+}
+
+const imageScaleEl = document.getElementById('image-scale');
+const MAX_EXPORT_PIXELS = 40e6;
+
+// Render (at `scale` × the on-screen CSS size) and composite canvas + labels.
+// Single view: the whole canvas; multi-view: just the pane grid, with pane
+// borders and titles.
+function captureImage(scale = Number(imageScaleEl.value) || 1) {
+  renderNow(); // brings print materials, grid, labels up to date at screen size
   const base = canvas.getBoundingClientRect();
-  let region = { x: 0, y: 0, w: canvas.clientWidth, h: canvas.clientHeight };
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const screenDpr = renderer.getPixelRatio();
+  const gl = renderer.getContext();
+  const maxDim = Math.min(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS), 16384);
+  const want = Math.min(scale, maxDim / cw, maxDim / ch, Math.sqrt(MAX_EXPORT_PIXELS / (cw * ch)));
+  const hiRes = want > screenDpr * 1.01;
+  let restoreLines = null;
+  if (hiRes) {
+    renderer.setPixelRatio(want);
+    restoreLines = fattenLines();
+    renderNow();
+  }
+  // The browser may cap the drawing buffer; use the size it actually got.
+  const dpr = gl.drawingBufferWidth / cw;
+  let region = { x: 0, y: 0, w: cw, h: ch };
   if (state.viewMode === 'multi') {
     const pr = panesEl.getBoundingClientRect();
     const pad = 8;
     region = { x: pr.left - base.left - pad, y: pr.top - base.top - pad, w: pr.width + 2 * pad, h: pr.height + 2 * pad };
   }
-  const dpr = renderer.getPixelRatio();
   const out = document.createElement('canvas');
   out.width = Math.round(region.w * dpr);
   out.height = Math.round(region.h * dpr);
   const ctx = out.getContext('2d');
   // Read the WebGL canvas in the same task as the render, before it is presented.
   ctx.drawImage(canvas, region.x * dpr, region.y * dpr, out.width, out.height, 0, 0, out.width, out.height);
+  if (hiRes) {
+    restoreLines();
+    renderer.setPixelRatio(screenDpr);
+    renderNow(); // put the on-screen picture back before the browser paints
+  }
   ctx.scale(dpr, dpr);
   const ox = base.left + region.x, oy = base.top + region.y;
   const clipTo = (el) => {
@@ -2334,13 +2424,14 @@ function toast(msg) {
 }
 
 document.getElementById('save-image').addEventListener('click', () => {
-  captureImage().toBlob((blob) => {
+  const out = captureImage();
+  out.toBlob((blob) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = snapshotName();
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast(`Saved ${a.download}`);
+    toast(`Saved ${a.download} (${out.width}×${out.height})`);
   }, 'image/png');
 });
 
@@ -2539,7 +2630,7 @@ document.getElementById('save-setup').addEventListener('click', () => {
   a.download = snapshotName().replace(/\.png$/, '.json').replace('dh-robot-', 'dh-setup-');
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast(`Saved ${a.download}`);
+  toast(`Saved ${a.download} (${out.width}×${out.height})`);
 });
 const setupFile = document.getElementById('setup-file');
 document.getElementById('load-setup').addEventListener('click', () => setupFile.click());

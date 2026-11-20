@@ -121,6 +121,12 @@
       <button id="fit-view" class="overlay tool-btn wide" title="Frame the whole robot">Fit view</button>
       <button id="save-image" class="overlay tool-btn" title="Save the current view as a PNG">Save image</button>
       <button id="copy-image" class="overlay tool-btn" title="Copy the current view to the clipboard">Copy image</button>
+      <select id="image-scale" class="overlay tool-btn image-scale" title="Resolution of saved / copied images (multiple of the on-screen size)" aria-label="Image resolution">
+        <option value="1">1× screen</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+        <option value="4" selected>4× (print)</option>
+      </select>
       <button id="present" class="overlay tool-btn present-btn">▶ Learn DH</button>
       <button id="compare" class="overlay tool-btn" title="Check whether a second DH table describes the same robot">⇄ Compare</button>
       <div id="view-mode" class="seg proj" role="group" aria-label="View mode">

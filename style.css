@@ -324,6 +324,7 @@ body.panel-collapsed #panel { display: none; }
 .chip.active { color: #fff; background: #1d2430; border-color: #1d2430; }
 .chip.active:hover:not(:disabled) { background: #343d4c; }
 .tool-btn { position: static; height: 32px; min-width: 32px; padding: 0 8px; font-size: 13px; }
+.image-scale { width: auto; padding: 0 4px; cursor: pointer; }
 
 .legend {
   left: 12px;

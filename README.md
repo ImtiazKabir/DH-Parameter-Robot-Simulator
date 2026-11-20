@@ -70,7 +70,9 @@ Open a preset directly with a URL hash, e.g. `#planar2r`, `#twist`, `#ex-wrist` 
 - **Projection on the XY plane** (opt-in, under "Drawing & view"): a soft shadow of the robot cast
   straight down onto the ground, i.e. its orthographic projection onto the XY plane. The opacity
   slider sets how strong it is (default 25%).
-- **Save image / Copy image** (canvas toolbar): exports what you see as a PNG, including the labels.
+- **Save image / Copy image** (canvas toolbar): exports what you see as a PNG, including the labels. The resolution menu next to them
+  renders the export at 1×–4× the on-screen size (default 4×, for print); lines and labels keep their on-screen
+  thickness, so the result is sharp rather than an upscaled screenshot.
   In multi-view the image contains the panes with their titles. Copying needs a browser with
   clipboard image support (recent Chrome, Edge, Safari or Firefox) and an `https://` or `localhost`
   page.
