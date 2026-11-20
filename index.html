@@ -19,6 +19,11 @@
     <header>
       <h1>DH Robot Simulator</h1>
       <p class="sub">Configuration <span id="config" class="config">RRR</span></p>
+      <div class="setup-btns">
+        <button id="save-setup" title="Download the robot and all view settings as a .json file">Save setup</button>
+        <button id="load-setup" title="Load a robot and view settings from a .json file">Load setup…</button>
+        <input id="setup-file" type="file" accept=".json,application/json" hidden />
+      </div>
     </header>
 
     <section class="card">
@@ -49,7 +54,11 @@
         <button id="scale-auto" title="Pick a scale that fits the current robot">Auto</button>
       </div>
       <p class="note">Only changes how the robot is drawn. Slider ranges grow with the scale; the matrices and the EE position always use the real values.</p>
-      <div class="row">
+      <div class="tool-row">
+        <label class="check"><input id="show-tool" type="checkbox" checked autocomplete="off" /> Show end effector</label>
+        <select id="tool-type" autocomplete="off" aria-label="End effector type"></select>
+      </div>
+      <div id="grip-row" class="row sub-row">
         <label for="grip-range">grip</label>
         <input id="grip-range" type="range" min="0.05" max="0.6" step="0.01" />
         <input id="grip-num" type="number" min="0.05" max="0.6" step="any" />
@@ -59,14 +68,32 @@
       <label class="check"><input id="show-dims" type="checkbox" autocomplete="off" /> Show DH parameters on canvas</label>
       <label class="check"><input id="show-axes" type="checkbox" autocomplete="off" /> Show frame axes</label>
       <label class="check sub-check"><input id="show-y" type="checkbox" autocomplete="off" /> Show y axes</label>
-      <label class="check"><input id="show-labels" type="checkbox" autocomplete="off" /> Show frame labels</label>
+      <label class="check"><input id="show-labels" type="checkbox" autocomplete="off" /> Show frame labels (x₁, z₁, …)</label>
+      <label class="check"><input id="show-names" type="checkbox" autocomplete="off" /> Show frame names ({0}, {1}, …)</label>
+      <label class="check"><input id="show-base" type="checkbox" checked autocomplete="off" /> Show base plate</label>
+      <label class="check"><input id="show-world" type="checkbox" checked autocomplete="off" /> Show global X / Y axes</label>
+      <label class="check sub-check"><input id="show-ticks" type="checkbox" checked autocomplete="off" /> Show axis numbers</label>
       <label class="check"><input id="show-grid" type="checkbox" checked autocomplete="off" /> Show ground grid</label>
+      <div id="grid-opacity-row" class="row sub-row">
+        <label for="grid-opacity">opacity</label>
+        <input id="grid-opacity" type="range" min="0.05" max="2" step="0.01" autocomplete="off" title="Up to 100% fades the grid; above 100% darkens it" />
+        <output id="grid-opacity-out" for="grid-opacity" class="unit"></output>
+        <span></span>
+      </div>
       <label class="check"><input id="show-shadow" type="checkbox" autocomplete="off" /> Show projection on XY plane</label>
       <div class="row sub-row">
         <label for="shadow-opacity">opacity</label>
         <input id="shadow-opacity" type="range" min="0.05" max="0.8" step="0.01" autocomplete="off" />
         <output id="shadow-opacity-out" for="shadow-opacity" class="unit"></output>
         <span></span>
+      </div>
+      <label class="check"><input id="print-mode" type="checkbox" autocomplete="off" /> Black &amp; white (print) mode</label>
+      <div id="print-opts" class="print-opts" hidden>
+        <div class="row sub-row"><label for="print-fill">links</label><input id="print-fill" type="range" min="0.6" max="1" step="0.01" /><output id="print-fill-out" class="unit"></output><span></span></div>
+        <div class="row sub-row"><label for="print-joint">joints</label><input id="print-joint" type="range" min="0.3" max="1" step="0.01" /><output id="print-joint-out" class="unit"></output><span></span></div>
+        <div class="row sub-row"><label for="print-shade">shading</label><input id="print-shade" type="range" min="0" max="0.7" step="0.01" /><output id="print-shade-out" class="unit"></output><span></span></div>
+        <div class="row sub-row"><label for="print-outline">outline</label><input id="print-outline" type="range" min="0" max="0.04" step="0.001" /><output id="print-outline-out" class="unit"></output><span></span></div>
+        <button id="print-reset" class="print-reset">Reset B&amp;W settings</button>
       </div>
     </section>
 
@@ -95,6 +122,7 @@
       <button id="save-image" class="overlay tool-btn" title="Save the current view as a PNG">Save image</button>
       <button id="copy-image" class="overlay tool-btn" title="Copy the current view to the clipboard">Copy image</button>
       <button id="present" class="overlay tool-btn present-btn">▶ Learn DH</button>
+      <button id="compare" class="overlay tool-btn" title="Check whether a second DH table describes the same robot">⇄ Compare</button>
       <div id="view-mode" class="seg proj" role="group" aria-label="View mode">
         <button data-mode="single" title="One view you can orbit">Single</button>
         <button data-mode="multi" title="Several fixed-angle panes (pan and zoom only)">Multi-view</button>
@@ -149,6 +177,28 @@
       </div>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <!-- Compare mode -->
+    <section id="cmp" class="cmp" hidden aria-label="Compare DH tables">
+      <div class="cmp-head">
+        <span>Compare DH tables</span>
+        <span class="cmp-head-btns">
+          <button id="cmp-min" class="ghost" title="Shrink the panel to its verdict">–</button>
+          <button id="cmp-close" class="ghost" title="Close compare mode">✕</button>
+        </span>
+      </div>
+      <p class="note">Table <b>A</b> is the robot in the sidebar. Enter another table <b>B</b> for the same robot: it is drawn in <b class="cmp-blue">blue</b> on top of A. Equivalent tables put every joint axis and the end effector in the same place, in every pose.</p>
+      <div class="cmp-label">A · current robot</div>
+      <table id="cmp-a" class="cmp-table"></table>
+      <div class="cmp-label">B · your table</div>
+      <table id="cmp-b" class="cmp-table cmp-edit"></table>
+      <div class="cmp-btns">
+        <button id="cmp-add">+ Row</button>
+        <button id="cmp-copy">Copy A into B</button>
+        <label class="check"><input id="cmp-frames" type="checkbox" checked autocomplete="off" /> B's frames (x′, z′)</label>
+      </div>
+      <div id="cmp-verdict" class="cmp-verdict"></div>
+    </section>
 
     <!-- Presentation mode -->
     <div id="pres" class="pres" hidden>

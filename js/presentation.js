@@ -137,7 +137,7 @@ export function createPresentation(ctx) {
       color: COLORS[kind], roughness: 0.4, transparent: true, opacity, depthTest: false,
     });
     const arrow = ctx.makeArrow(mat, AXIS_LEN, 0.04);
-    arrow.traverse((m) => { m.renderOrder = 5; });
+    arrow.traverse((m) => { m.renderOrder = 5 + (m.userData.arrowHead ? 0.5 : 0); }); // tip after shaft
     arrow.quaternion.setFromUnitVectors(UP, dir);
     arrow.position.copy(origin);
     return { arrow, mat };
@@ -797,7 +797,7 @@ export function createPresentation(ctx) {
     ctx.setViewMode('single');
     ctx.setProjection('ortho');
     saved.pose = { ...getPose(), pos: cam().position.clone() };
-    for (const id of ['show-ee', 'show-dims', 'show-axes', 'show-labels']) ctx.setToggle(id, false);
+    for (const id of ['show-ee', 'show-dims', 'show-axes', 'show-labels', 'show-names']) ctx.setToggle(id, false);
     ctx.setPanelCollapsed(true);
     state.rotating = null;
     document.body.classList.add('presenting');

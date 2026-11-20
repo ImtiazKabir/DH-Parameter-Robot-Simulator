@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { forwardKinematics, dhMatrix, deg2rad } from './dh.js';
 import { createPresentation } from './presentation.js';
+import { createCompare } from './compare.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -269,6 +270,19 @@ const state = {
   showDims: false,
   showEE: false, // end-effector coordinate tag on the canvas
   showLabels: false,
+  showNames: false,    // frame names {0}, {1}, … (opt-in)
+  showTool: true,
+  showBase: true,      // the round base plate under the robot
+  showWorld: true,     // global X / Y axes
+  showTicks: true,     // numbers along the global axes
+  gridOpacity: 1,
+  cmpJoints: null,     // compare mode: the second DH table (B)      // draw the end effector (tool) at the last frame
+  tool: 'gripper',     // 'gripper' | 'suction' | 'pen' | 'flange'
+  printMode: false,    // black & white, print-friendly rendering
+  printFill: 0.97,     // B&W: lightness of links and tool
+  printJoint: 0.78,    // B&W: lightness of joints
+  printShade: 0.35,    // B&W: how dark the shadow side gets
+  printOutline: 0.014, // B&W: outline width (drawn units)
   showGrid: true,
   showShadow: false,   // projection of the robot on the XY (ground) plane
   shadowOpacity: 0.25,
@@ -333,10 +347,104 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.5);
 sun.position.set(5, -4, 9);
 scene.add(sun);
 
-const grid = new THREE.GridHelper(12, 24, 0xa9b2bf, 0xd9dee5);
+// Ground grid: a large sheet (cells of 0.5 drawn units) that follows the point
+// each camera looks at, snapped to whole units so its lines stay on the
+// origin's lines. Together that keeps the whole viewport covered however far
+// the view is panned or zoomed out.
+const GRID_HALF = 300;
+const grid = new THREE.GridHelper(2 * GRID_HALF, 4 * GRID_HALF, 0xd3d8df, 0xd3d8df);
 grid.rotation.x = Math.PI / 2; // GridHelper lies in XZ; rotate into XY
 grid.position.z = -0.3;
 scene.add(grid);
+const _gridRay = new THREE.Vector3();
+function centerGridFor(cam) {
+  // Where the camera's line of sight meets the ground plane (or, looking
+  // along the ground, the point under the camera).
+  cam.getWorldDirection(_gridRay);
+  const p = cam.position;
+  let x = p.x, y = p.y;
+  if (Math.abs(_gridRay.z) > 1e-3) {
+    const t = (grid.position.z - p.z) / _gridRay.z;
+    x = p.x + _gridRay.x * t;
+    y = p.y + _gridRay.y * t;
+  }
+  // Whole units keep the 0.5-unit cell lines on the origin's lines.
+  grid.position.x = Math.round(x);
+  grid.position.y = Math.round(y);
+}
+// Grid strength: up to 100% fades the lines in; 100–200% darkens them from
+// their light default colours towards a dark slate.
+const gridBaseColors = grid.geometry.attributes.color.array.slice();
+const GRID_DARK = new THREE.Color(0x334155);
+function applyGridOpacity() {
+  const v = state.gridOpacity;
+  grid.material.transparent = v < 1;
+  grid.material.opacity = Math.min(v, 1);
+  grid.material.depthWrite = v >= 1;
+  grid.material.needsUpdate = true;
+  const t = Math.max(0, v - 1);
+  const cols = grid.geometry.attributes.color;
+  const dark = [GRID_DARK.r, GRID_DARK.g, GRID_DARK.b];
+  for (let i = 0; i < cols.array.length; i++) cols.array[i] = gridBaseColors[i] + (dark[i % 3] - gridBaseColors[i]) * t;
+  cols.needsUpdate = true;
+}
+
+// Global X and Y axes through the world origin (the base frame's origin), with
+// tick labels every drawn unit in real units. Positive halves solid with an
+// arrowhead, negative halves dashed. Rebuilt when the drawing scale changes.
+const worldAxes = new THREE.Group();
+scene.add(worldAxes);
+let worldAxesScale = null;
+const WORLD_ARROW = 3;  // length of the bold arrow part of each global axis
+const WORLD_TICKS = 10; // tick labels out to ±10 drawn units
+const WORLD_LINE = 800; // the thin line runs on well past any viewport
+function buildWorldAxes() {
+  if (worldAxesScale === state.scale) return;
+  worldAxesScale = state.scale;
+  clearGroup(worldAxes);
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const [k, dir, side] of [['x', new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)], ['y', new THREE.Vector3(0, 1, 0), new THREE.Vector3(-1, 0, 0)]]) {
+    const mat = new THREE.MeshBasicMaterial({ color: COLORS[k] });
+    // Bold arrow from the origin, then a thin line along the whole axis.
+    const shaftLen = WORLD_ARROW - 0.25;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, shaftLen, 10), mat);
+    shaft.quaternion.setFromUnitVectors(up, dir);
+    shaft.position.copy(dir).multiplyScalar(shaftLen / 2);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.25, 16), mat);
+    head.quaternion.setFromUnitVectors(up, dir);
+    head.position.copy(dir).multiplyScalar(WORLD_ARROW - 0.125);
+    shaft.userData.noOutline = true; // too thin: an outline would swamp its tone in B&W
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([dir.clone().multiplyScalar(-WORLD_LINE), dir.clone().multiplyScalar(WORLD_LINE)]),
+      new THREE.LineBasicMaterial({ color: COLORS[k], transparent: true, opacity: 0.6 }),
+    );
+    worldAxes.add(shaft, head, line);
+    const ticks = [];
+    for (let t = -WORLD_TICKS; t <= WORLD_TICKS; t++) {
+      if (t === 0) continue;
+      const p = dir.clone().multiplyScalar(t);
+      ticks.push(p.clone().addScaledVector(side, -0.07), p.clone().addScaledVector(side, 0.07));
+      const lab = makeLabel(short(t * state.scale), 'tick-label');
+      lab.userData.tick = true;
+      lab.position.copy(p).addScaledVector(side, -0.22);
+      worldAxes.add(lab);
+    }
+    worldAxes.add(new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(ticks), new THREE.LineBasicMaterial({ color: COLORS[k] }),
+    ));
+    const name = makeLabel(k.toUpperCase(), `world-label ${k}`);
+    name.position.copy(dir).multiplyScalar(WORLD_ARROW + 0.3).addScaledVector(side, 0.25);
+    worldAxes.add(name);
+  }
+}
+// CSS2DRenderer ignores parent visibility, so labels are hidden one by one.
+function applyWorldAxes() {
+  buildWorldAxes();
+  worldAxes.traverse((o) => { o.visible = state.showWorld && (!o.userData.tick || state.showTicks); });
+  const box = document.getElementById('show-ticks');
+  box.disabled = !state.showWorld;
+  box.closest('.check').classList.toggle('disabled', !state.showWorld);
+}
 
 // Projection of the robot onto the ground (XY) plane: the shadow of a light
 // pointing straight down, caught by an otherwise invisible plane. A shadow map
@@ -430,13 +538,11 @@ function setDefocus(on) {
   }
 }
 
-// Base pedestal under frame {0} (static).
-{
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.08, 40), MAT.base);
-  base.rotation.x = Math.PI / 2;
-  base.position.z = -0.26;
-  scene.add(base);
-}
+// Base plate under frame {0} (static; can be hidden).
+const basePlate = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.08, 40), MAT.base);
+basePlate.rotation.x = Math.PI / 2;
+basePlate.position.z = -0.26;
+scene.add(basePlate);
 
 const toMatrix4 = (T) => new THREE.Matrix4().set(...T.flat());
 
@@ -470,9 +576,14 @@ function makeArrow(mat, length, radius) {
   shaft.position.y = (length - headLen) / 2;
   const head = new THREE.Mesh(new THREE.ConeGeometry(radius * 2.4, headLen, 16), mat);
   head.position.y = length - headLen / 2;
+  // Arrows are often drawn on top of everything (no depth test); the tip must
+  // then be drawn after its shaft, or the shaft shows through it.
+  head.userData.arrowHead = true;
   g.add(shaft, head);
   return g;
 }
+// Render order for arrows drawn on top: `base` for shafts, just after for tips.
+const arrowOrder = (m, base) => { m.renderOrder = base + (m.userData.arrowHead ? 0.5 : 0); };
 
 function makeFrame(index, length) {
   const group = new THREE.Group();
@@ -485,7 +596,7 @@ function makeFrame(index, length) {
   const z = makeArrow(AXIS_MAT.z, length, 0.022);
   z.rotation.x = Math.PI / 2; // +Y -> +Z
   axes.add(x, y, z, new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 12), MAT.origin));
-  axes.traverse((m) => { m.renderOrder = 5; }); // after the robot, so they draw on top
+  axes.traverse((m) => arrowOrder(m, 5)); // after the robot, so they draw on top
 
   const tip = length + 0.12;
   const lx = makeLabel(`x${index}`, 'axis-label x'); lx.position.set(tip, 0, 0);
@@ -513,10 +624,12 @@ function rebuildFrames() {
 // CSS2DRenderer ignores parent visibility, so hide the axis letters explicitly.
 // The y axes are a separate opt-in, shown only together with the frame axes.
 function applyAxesVisibility() {
-  const showY = state.showAxes && state.showY;
-  frames.forEach((f) => {
-    f.axes.visible = state.showAxes;
-    f.axisLabels.forEach((l) => { l.visible = state.showAxes; });
+  frames.forEach((f, i) => {
+    // Frame {0} coincides with the world frame, so the global axes stand in for it.
+    const on = state.showAxes && !(i === 0 && state.showWorld);
+    const showY = on && state.showY;
+    f.axes.visible = on;
+    f.axisLabels.forEach((l) => { l.visible = on; });
     f.yArrow.visible = showY;
     f.yLabel.visible = showY;
   });
@@ -618,14 +731,67 @@ function buildJoint(i, Ts) {
   cur.add(sphere(0.09, 0));
 }
 
-function buildGripper(T) {
+// Solid of revolution along local +x from x0 to x1 (radius r0 at x0, r1 at x1).
+function alongX(r0, r1, x0, x1, mat, seg = 24) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, x1 - x0, seg), mat);
+  m.rotation.z = -Math.PI / 2; // cylinder +y (top, radius r1) -> +x
+  m.position.x = (x0 + x1) / 2;
+  return m;
+}
+
+const TOOLS = {
+  gripper: 'Parallel gripper',
+  suction: 'Suction cup',
+  pen: 'Pen / pointer',
+  flange: 'Flange only',
+};
+
+// The tool sits at the last frame {n} and points along `dirLocal` (in frame {n}
+// coordinates). Each tool is modelled pointing along +x, then turned onto it.
+function buildTool(T, dirLocal) {
+  if (!state.showTool) return;
   const g = frameGroup(T);
-  const w = state.grip;
-  const fingerLen = 0.4;
-  g.add(box(0.14, w + 0.26, 0.18, MAT.gripper, 0.07, 0, 0)); // palm
-  const fx = 0.14 + fingerLen / 2;
-  g.add(box(fingerLen, 0.06, 0.12, MAT.gripper, fx, w / 2 + 0.03, 0));
-  g.add(box(fingerLen, 0.06, 0.12, MAT.gripper, fx, -(w / 2 + 0.03), 0));
+  const tool = new THREE.Group();
+  tool.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dirLocal);
+  g.add(tool);
+  const M = MAT.gripper;
+  switch (state.tool) {
+    case 'suction':
+      tool.add(alongX(0.13, 0.13, 0, 0.05, M));          // mounting flange
+      tool.add(alongX(0.05, 0.05, 0.05, 0.34, M, 16));   // stem
+      tool.add(alongX(0.06, 0.18, 0.34, 0.48, M));       // flared cup
+      break;
+    case 'pen':
+      tool.add(alongX(0.13, 0.13, 0, 0.05, M));          // mounting flange
+      tool.add(alongX(0.065, 0.065, 0.05, 0.42, M));     // body
+      tool.add(alongX(0.065, 0.004, 0.42, 0.58, MAT.base)); // tip
+      break;
+    case 'flange':
+      tool.add(alongX(0.17, 0.17, 0, 0.06, M));          // tool flange
+      tool.add(alongX(0.06, 0.06, 0.06, 0.11, M, 16));   // centring boss
+      break;
+    default: { // parallel-jaw gripper
+      const w = state.grip;
+      const fingerLen = 0.4;
+      tool.add(box(0.14, w + 0.26, 0.18, M, 0.07, 0, 0)); // palm
+      const fx = 0.14 + fingerLen / 2;
+      tool.add(box(fingerLen, 0.06, 0.12, M, fx, w / 2 + 0.03, 0));
+      tool.add(box(fingerLen, 0.06, 0.12, M, fx, -(w / 2 + 0.03), 0));
+    }
+  }
+}
+
+// Natural pointing direction of the tool, in frame {n} coordinates. Normally it
+// continues the last link along x_n; when the last link has no length (a_n = 0)
+// but an offset (d_n ≠ 0, or a prismatic joint), it faces along that offset,
+// i.e. along ±z_{n-1}.
+function toolDirection(Ts) {
+  const n = state.joints.length;
+  const j = state.joints[n - 1];
+  const col3 = (T, c) => new THREE.Vector3(T[0][c], T[1][c], T[2][c]);
+  if (j.a > 1e-6 || (j.type === 'R' && Math.abs(j.d) <= 1e-6)) return new THREE.Vector3(1, 0, 0);
+  const w = col3(Ts[n - 1], 2).multiplyScalar(j.d < 0 ? -1 : 1);
+  return new THREE.Vector3(w.dot(col3(Ts[n], 0)), w.dot(col3(Ts[n], 1)), w.dot(col3(Ts[n], 2))).normalize();
 }
 
 // ---------------------------------------------------------------------------
@@ -762,7 +928,7 @@ function update() {
 
   clearGroup(robot);
   for (let i = 0; i < n; i++) buildJoint(i, drawn);
-  buildGripper(drawn[n]);
+  buildTool(drawn[n], toolDirection(drawn));
   buildDims(drawn);
   updateProjection();
 
@@ -772,7 +938,9 @@ function update() {
   eeLabel.element.textContent = `EE (${ee.map((v) => fmt(v, 2)).join(', ')})`;
 
   updateReadouts(real);
+  compareHook?.();
 }
+let compareHook = null; // set once compare mode exists
 
 // Bounding box of the robot drawing (plus the base origin).
 function robotBox() {
@@ -1604,6 +1772,7 @@ function syncAllUI() {
   gripRange.value = gripNum.value = state.grip;
   scaleNum.value = state.scale;
   document.getElementById('grid-info').textContent = `grid cell = ${short(0.5 * state.scale)}`;
+  applyWorldAxes();
   const revOnly = state.joints.every((j) => j.type === 'R');
   presentBtn.disabled = !revOnly;
   presentBtn.title = revOnly
@@ -1656,6 +1825,22 @@ function deleteJoint(i) {
   markEdited();
   state.joints.splice(i, 1);
   structureChanged();
+}
+
+const toolSelect = document.getElementById('tool-type');
+for (const [k, label] of Object.entries(TOOLS)) toolSelect.append(new Option(label, k));
+toolSelect.value = state.tool;
+toolSelect.addEventListener('change', () => {
+  state.tool = toolSelect.value;
+  syncToolUI();
+  update();
+});
+// The grip slider only applies to a visible parallel gripper.
+function syncToolUI() {
+  toolSelect.disabled = !state.showTool;
+  const gripOn = state.showTool && state.tool === 'gripper';
+  document.getElementById('grip-row').classList.toggle('disabled', !gripOn);
+  gripRange.disabled = gripNum.disabled = !gripOn;
 }
 
 const gripRange = document.getElementById('grip-range');
@@ -1717,7 +1902,17 @@ const VIEW_TOGGLES = {
   'show-axes': ['showAxes', () => applyAxesVisibility()],
   'show-y': ['showY', () => applyAxesVisibility()],
   'show-labels': ['showLabels', () => viewport.classList.toggle('hide-labels', !state.showLabels)],
-  'show-grid': ['showGrid', () => { grid.visible = state.showGrid; }],
+  'show-names': ['showNames', () => viewport.classList.toggle('hide-names', !state.showNames)],
+  'show-grid': ['showGrid', () => {
+    grid.visible = state.showGrid;
+    document.getElementById('grid-opacity').disabled = !state.showGrid;
+    document.getElementById('grid-opacity-row').classList.toggle('disabled', !state.showGrid);
+  }],
+  'show-world': ['showWorld', () => { applyWorldAxes(); applyAxesVisibility(); }],
+  'show-ticks': ['showTicks', () => applyWorldAxes()],
+  'show-tool': ['showTool', () => { syncToolUI(); update(); }],
+  'show-base': ['showBase', () => { basePlate.visible = state.showBase; }],
+  'print-mode': ['printMode', () => applyPrintMode()],
   'show-shadow': ['showShadow', () => {
     updateProjection();
     shadowRange.disabled = !state.showShadow;
@@ -1784,6 +1979,239 @@ function updateReadouts(Ts) {
         cell(j, 'a', fmt(j.a, 2)) + cell(j, 'alpha', fmt(j.alpha, 1)) + '</tr>')
       .join('');
 }
+
+// ---------------------------------------------------------------------------
+// Black & white (print) mode: line-art rendering — flat toon-shaded gray fills,
+// black outlines and crease lines, and parts told apart by tone rather than
+// hue (x black, y gray, z white with an outline). Every mesh and line in the
+// scene is converted lazily before each render, so parts that are rebuilt
+// (sliders, presentation overlays) are picked up automatically.
+// ---------------------------------------------------------------------------
+
+const printInfo = new WeakMap();   // object -> { orig, pm }
+const printOrig = new WeakMap();   // print material -> original material
+const printMeshMats = [];          // [{ mat, role }] for re-toning from the sliders
+const lineMatCache = new WeakMap();
+const meshMatCache = new WeakMap();
+
+// Banded "illustration" shading for B&W fills. The light is fixed relative to
+// the camera (upper left, in front), so every part shows a lit side, a mid
+// tone and a shadow side however the view is turned; the scene lights play no
+// part. Output values are written as-is (display tones), so a tone of 0.97 is
+// exactly 97% white on screen and on paper.
+const shadeUniform = { value: state.printShade };
+const TOON_VERTEX = `varying vec3 vN;
+  void main() {
+    vN = normalize(normalMatrix * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+const TOON_FRAGMENT = `uniform float tone; uniform float shade; uniform float opacity;
+  varying vec3 vN;
+  void main() {
+    vec3 n = normalize(gl_FrontFacing ? vN : -vN);
+    // Light from the upper left and only slightly in front, so a rounded part
+    // splits into a lit side, a mid band and a shadow side.
+    float l = dot(n, normalize(vec3(-0.75, 0.55, 0.2)));
+    float band = l > 0.5 ? 1.0 : (l > -0.05 ? 1.0 - 0.5 * shade : 1.0 - shade);
+    gl_FragColor = vec4(vec3(tone * band), opacity);
+  }`;
+function makeToonMat(tone) {
+  return new THREE.ShaderMaterial({
+    uniforms: { tone: { value: tone }, shade: shadeUniform, opacity: { value: 1 } },
+    vertexShader: TOON_VERTEX,
+    fragmentShader: TOON_FRAGMENT,
+  });
+}
+
+// Outline: back faces pushed out along their normals, drawn in black.
+const hullUniforms = { width: { value: state.printOutline } };
+const hullShader = {
+  uniforms: hullUniforms,
+  vertexShader: `uniform float width;
+    void main() {
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position + normalize(normal) * width, 1.0);
+    }`,
+  fragmentShader: 'void main() { gl_FragColor = vec4(0.07, 0.07, 0.07, 1.0); }',
+  side: THREE.BackSide,
+};
+const HULL = {
+  depth: new THREE.ShaderMaterial(hullShader),
+  top: new THREE.ShaderMaterial({ ...hullShader, depthTest: false }),
+};
+const EDGE = {
+  depth: new THREE.LineBasicMaterial({ color: 0x111111 }),
+  top: new THREE.LineBasicMaterial({ color: 0x111111, depthTest: false }),
+  // crease lines of parts the presentation has faded out
+  fadedDepth: new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.15, depthWrite: false }),
+  fadedTop: new THREE.LineBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.15, depthTest: false }),
+};
+
+// Role of an original material: decides its print tone.
+const ROLE_BY_MAT = new Map([
+  [MAT.link, 'part'], [MAT.sleeve, 'part'], [MAT.gripper, 'tool'],
+  [MAT.revolute, 'joint'], [MAT.base, 'joint'], [MAT.rod, 'dark'], [MAT.swing, 'dark'],
+  [MAT.spin, 'keep'], [MAT.origin, 'black'],
+  [AXIS_MAT.x, 'x'], [AXIS_MAT.y, 'y'], [AXIS_MAT.z, 'z'],
+]);
+function roleOf(m) {
+  if (ROLE_BY_MAT.has(m)) return ROLE_BY_MAT.get(m);
+  if (m.map) return 'keep';
+  const hex = m.color ? m.color.getHex() : 0;
+  if (hex === COLORS.x) return 'x';
+  if (hex === COLORS.y) return 'y';
+  if (hex === COLORS.z) return 'z';
+  if (m.isMeshBasicMaterial) return 'black'; // arcs, arrowheads, dots, trails
+  return 'part';
+}
+function toneOf(role) {
+  switch (role) {
+    case 'part': return state.printFill;
+    case 'tool': return state.printFill * 0.82;
+    case 'joint': return state.printJoint;
+    case 'dark': return state.printJoint * 0.62;
+    case 'x': return 0.1;
+    case 'y': return 0.62;
+    case 'z': return 1;
+    default: return 0.07;
+  }
+}
+function printMeshMat(orig, role) {
+  if (role === 'keep') return orig;
+  let pm = meshMatCache.get(orig);
+  if (!pm) {
+    pm = role === 'black'
+      ? new THREE.MeshBasicMaterial({ color: 0x111111 })
+      : makeToonMat(toneOf(role));
+    meshMatCache.set(orig, pm);
+    printOrig.set(pm, orig);
+    printMeshMats.push({ mat: pm, role });
+  }
+  return pm;
+}
+function printLineMat(orig) {
+  let pm = lineMatCache.get(orig);
+  if (!pm) {
+    pm = orig.isLineDashedMaterial
+      ? new THREE.LineDashedMaterial({ color: 0x111111, dashSize: orig.dashSize, gapSize: orig.gapSize })
+      : new THREE.LineBasicMaterial({ color: 0x111111 });
+    if (orig.color?.getHex() === COLORS.y) pm.color.set(0x8a8a8a); // y stays grey, as for the axes
+    lineMatCache.set(orig, pm);
+    printOrig.set(pm, orig);
+  }
+  return pm;
+}
+function syncMatProps(pm, orig) {
+  if (pm === orig) return;
+  if (pm.transparent !== orig.transparent) pm.needsUpdate = true;
+  pm.transparent = orig.transparent;
+  pm.opacity = orig.opacity;
+  if (pm.uniforms?.opacity) pm.uniforms.opacity.value = orig.transparent ? orig.opacity : 1;
+  pm.depthTest = orig.depthTest;
+  pm.depthWrite = orig.depthWrite;
+}
+
+function addOutline(o) {
+  if (o.userData.noOutline || o.children.some((c) => c.userData.printAux)) return;
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 35), EDGE.depth);
+  edges.userData.printAux = 'edges';
+  const hull = new THREE.Mesh(o.geometry, HULL.depth);
+  hull.userData.printAux = 'hull';
+  o.add(edges, hull);
+}
+
+const skipPrint = (o) => o === grid || o.parent === grid || o.material?.isShadowMaterial || Array.isArray(o.material);
+
+function syncPrint() {
+  if (!state.printMode) return;
+  const objs = [];
+  scene.traverse((o) => { if (o.isMesh || o.isLine) objs.push(o); });
+  for (const o of objs) {
+    if (o.userData.printAux) {
+      // Keep helpers in step with their owner (and undo stray material swaps).
+      const owner = o.parent;
+      const top = owner.material.depthTest === false;
+      const info = printInfo.get(owner);
+      const faded = info && info.orig.transparent && info.orig.opacity < 0.95;
+      o.material = o.userData.printAux === 'hull'
+        ? (top ? HULL.top : HULL.depth)
+        : faded ? (top ? EDGE.fadedTop : EDGE.fadedDepth) : (top ? EDGE.top : EDGE.depth);
+      o.renderOrder = owner.renderOrder - (o.userData.printAux === 'hull' ? 0.3 : -0.1);
+      o.visible = !faded || o.userData.printAux === 'edges';
+      continue;
+    }
+    if (skipPrint(o)) continue;
+    let info = printInfo.get(o);
+    if (!info || o.material !== info.pm) {
+      // New object, or its material was replaced since it was converted.
+      const orig = printOrig.get(o.material) || o.material;
+      const role = o.isLine ? 'line' : roleOf(orig);
+      const pm = o.isLine ? printLineMat(orig) : printMeshMat(orig, role);
+      info = { orig, pm };
+      printInfo.set(o, info);
+      o.material = pm;
+      if (!o.isLine && role !== 'black') addOutline(o);
+    }
+    syncMatProps(info.pm, info.orig);
+  }
+}
+// Before every render (main view, each multi-view pane, image export).
+scene.onBeforeRender = (r, sc, cam) => {
+  centerGridFor(cam);
+  syncPrint();
+};
+
+function unprintScene() {
+  const aux = [];
+  scene.traverse((o) => {
+    if (o.userData.printAux) { aux.push(o); return; }
+    const info = printInfo.get(o);
+    if (info) { o.material = info.orig; printInfo.delete(o); }
+    else if (o.material && printOrig.has(o.material)) o.material = printOrig.get(o.material);
+  });
+  for (const o of aux) {
+    if (o.userData.printAux === 'edges') o.geometry.dispose();
+    o.removeFromParent();
+  }
+}
+
+function applyPrintMode() {
+  const on = state.printMode;
+  document.body.classList.toggle('bw', on);
+  document.getElementById('print-opts').hidden = !on;
+  scene.background.set(on ? 0xffffff : 0xf4f6f9);
+  if (!on) unprintScene();
+}
+function retonePrint() {
+  shadeUniform.value = state.printShade;
+  hullUniforms.width.value = state.printOutline;
+  for (const { mat, role } of printMeshMats) if (role !== 'black') mat.uniforms.tone.value = toneOf(role);
+}
+const PRINT_SLIDERS = [
+  ['print-fill', 'printFill', (v) => `${Math.round(v * 100)}%`],
+  ['print-joint', 'printJoint', (v) => `${Math.round(v * 100)}%`],
+  ['print-shade', 'printShade', (v) => `${Math.round(v * 100)}%`],
+  ['print-outline', 'printOutline', (v) => v.toFixed(3)],
+];
+for (const [id, key, fmtv] of PRINT_SLIDERS) {
+  const range = document.getElementById(id);
+  const out = document.getElementById(`${id}-out`);
+  range.value = state[key];
+  out.textContent = fmtv(state[key]);
+  range.addEventListener('input', () => {
+    state[key] = parseFloat(range.value);
+    out.textContent = fmtv(state[key]);
+    retonePrint();
+  });
+}
+document.getElementById('print-reset').addEventListener('click', () => {
+  Object.assign(state, { printFill: 0.97, printJoint: 0.78, printShade: 0.35, printOutline: 0.014 });
+  for (const [id, key, fmtv] of PRINT_SLIDERS) {
+    document.getElementById(id).value = state[key];
+    document.getElementById(`${id}-out`).textContent = fmtv(state[key]);
+  }
+  retonePrint();
+});
+retonePrint();
 
 // ---------------------------------------------------------------------------
 // Image export: the WebGL canvas plus the HTML labels, composited into one PNG
@@ -1982,7 +2410,150 @@ const presentation = createPresentation({
   drawnTransforms: () => kinematics(state.scale),
   isRevoluteOnly: () => state.joints.every((j) => j.type === 'R'),
 });
-presentBtn.addEventListener('click', () => presentation.enter());
+presentBtn.addEventListener('click', () => { compare.close(); presentation.enter(); });
+
+const compare = createCompare({ state, scene, COLORS, makeArrow, makeLabel, clearGroup, short });
+compareHook = compare.refresh;
+
+const gridRange = document.getElementById('grid-opacity');
+const gridOut = document.getElementById('grid-opacity-out');
+gridRange.value = state.gridOpacity;
+gridOut.textContent = `${Math.round(state.gridOpacity * 100)}%`;
+gridRange.addEventListener('input', () => {
+  state.gridOpacity = parseFloat(gridRange.value);
+  gridOut.textContent = `${Math.round(state.gridOpacity * 100)}%`;
+  applyGridOpacity();
+});
+applyGridOpacity();
+
+// ---------------------------------------------------------------------------
+// Save / load the whole setup (robot + view settings) as a JSON file
+// ---------------------------------------------------------------------------
+
+const SETUP_APP = 'dh-robot-simulator';
+const SETUP_VERSION = 1;
+
+function exportSetup() {
+  const cam = camera;
+  return {
+    app: SETUP_APP,
+    version: SETUP_VERSION,
+    robot: { joints: clone(state.joints), scale: state.scale, preset: activePreset, presetEdited },
+    tool: { show: state.showTool, type: state.tool, grip: state.grip },
+    view: {
+      toggles: Object.fromEntries(Object.entries(VIEW_TOGGLES).map(([id, [key]]) => [id, state[key]])),
+      gridOpacity: state.gridOpacity,
+      shadowOpacity: state.shadowOpacity,
+      print: { fill: state.printFill, joint: state.printJoint, shade: state.printShade, outline: state.printOutline },
+      viewMode: state.viewMode,
+      paneViews: [...state.paneViews],
+      projection: cam.isOrthographicCamera ? 'ortho' : 'persp',
+      camera: {
+        target: target.toArray(),
+        quaternion: cam.quaternion.toArray(),
+        distance: cam.position.distanceTo(target),
+        orthoHalfHeight: orthoCam.top,
+        orthoZoom: orthoCam.zoom,
+      },
+    },
+    compare: { joints: state.cmpJoints ? clone(state.cmpJoints) : null },
+  };
+}
+
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+function validJoints(js) {
+  return Array.isArray(js) && js.length >= 1 && js.length <= MAX_JOINTS
+    && js.every((j) => j && (j.type === 'R' || j.type === 'P') && ['theta', 'd', 'a', 'alpha'].every((k) => finite(j[k])));
+}
+const cleanJoints = (js) => js.map(({ type, theta, d, a, alpha }) => ({ type, theta, d, a, alpha }));
+
+function importSetup(cfg) {
+  if (!cfg || cfg.app !== SETUP_APP) throw new Error('not a DH Robot Simulator setup file');
+  if (!validJoints(cfg.robot?.joints)) throw new Error('the robot table in the file is invalid');
+  presentation.exit();
+  compare.close();
+  const v = cfg.view || {};
+  // Robot
+  state.joints = cleanJoints(cfg.robot.joints);
+  if (finite(cfg.robot.scale) && cfg.robot.scale > 0) state.scale = cfg.robot.scale;
+  activePreset = PRESETS[cfg.robot.preset] ? cfg.robot.preset : null;
+  presetEdited = !!cfg.robot.presetEdited;
+  // Tool
+  if (cfg.tool) {
+    if (typeof cfg.tool.show === 'boolean') state.showTool = cfg.tool.show;
+    if (TOOLS[cfg.tool.type]) state.tool = cfg.tool.type;
+    if (finite(cfg.tool.grip)) state.grip = clamp(cfg.tool.grip, 0.05, 0.6);
+  }
+  toolSelect.value = state.tool;
+  // Sliders
+  if (finite(v.gridOpacity)) state.gridOpacity = clamp(v.gridOpacity, 0.05, 2);
+  if (finite(v.shadowOpacity)) state.shadowOpacity = clamp(v.shadowOpacity, 0.05, 0.8);
+  const pr = v.print || {};
+  if (finite(pr.fill)) state.printFill = pr.fill;
+  if (finite(pr.joint)) state.printJoint = pr.joint;
+  if (finite(pr.shade)) state.printShade = pr.shade;
+  if (finite(pr.outline)) state.printOutline = pr.outline;
+  gridRange.value = state.gridOpacity;
+  gridOut.textContent = `${Math.round(state.gridOpacity * 100)}%`;
+  applyGridOpacity();
+  shadowRange.value = state.shadowOpacity;
+  shadowOut.textContent = `${Math.round(state.shadowOpacity * 100)}%`;
+  for (const [id, key, fmtv] of PRINT_SLIDERS) {
+    document.getElementById(id).value = state[key];
+    document.getElementById(`${id}-out`).textContent = fmtv(state[key]);
+  }
+  retonePrint();
+  // Compare table
+  state.cmpJoints = validJoints(cfg.compare?.joints) ? cleanJoints(cfg.compare.joints) : null;
+  // Rebuild the robot, then apply the view toggles (B&W, axes, labels, …)
+  syncPresetNote();
+  structureChanged();
+  for (const id of Object.keys(VIEW_TOGGLES)) {
+    if (typeof v.toggles?.[id] === 'boolean') setToggle(id, v.toggles[id]);
+  }
+  syncToolUI();
+  // View mode, panes, projection, camera
+  if (Array.isArray(v.paneViews)) {
+    const keys = v.paneViews.filter((k) => PANE_VIEWS.some((p) => p.key === k));
+    if (keys.length) state.paneViews = keys;
+  }
+  syncPaneChips();
+  setViewMode(v.viewMode === 'multi' ? 'multi' : 'single');
+  if (v.projection === 'ortho' || v.projection === 'persp') setProjection(v.projection);
+  const c = v.camera;
+  if (c && Array.isArray(c.target) && Array.isArray(c.quaternion) && c.target.every(finite) && c.quaternion.every(finite)) {
+    viewAnim = null;
+    target.fromArray(c.target);
+    camera.quaternion.fromArray(c.quaternion).normalize();
+    if (finite(c.orthoHalfHeight) && c.orthoHalfHeight > 0) setOrthoHalfHeight(c.orthoHalfHeight);
+    if (finite(c.orthoZoom) && c.orthoZoom > 0) { orthoCam.zoom = c.orthoZoom; orthoCam.updateProjectionMatrix(); }
+    const dist = finite(c.distance) && c.distance > 0 ? c.distance : 10;
+    camera.position.copy(target).addScaledVector(backDir(), dist);
+  }
+}
+
+document.getElementById('save-setup').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(exportSetup(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = snapshotName().replace(/\.png$/, '.json').replace('dh-robot-', 'dh-setup-');
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`Saved ${a.download}`);
+});
+const setupFile = document.getElementById('setup-file');
+document.getElementById('load-setup').addEventListener('click', () => setupFile.click());
+setupFile.addEventListener('change', async () => {
+  const file = setupFile.files[0];
+  setupFile.value = ''; // allow loading the same file again
+  if (!file) return;
+  try {
+    importSetup(JSON.parse(await file.text()));
+    toast(`Loaded ${file.name}`);
+  } catch (err) {
+    toast(`Could not load ${file.name}: ${err.message}`);
+  }
+});
 
 buildPresetButtons();
 // Optional preset via URL hash, e.g. index.html#scara
@@ -1998,4 +2569,5 @@ syncPaneChips();
 setViewMode(state.viewMode);
 structureChanged();
 Object.values(VIEW_TOGGLES).forEach(([, apply]) => apply()); // initial view toggles
+syncToolUI();
 requestAnimationFrame(animate);

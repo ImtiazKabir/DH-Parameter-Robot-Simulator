@@ -20,6 +20,11 @@ Open a preset directly with a URL hash, e.g. `#planar2r`, `#twist`, `#ex-wrist` 
 
 ## Features
 
+- **Save setup / Load setup…** (top of the sidebar): saves everything to a `.json` file and loads
+  it back. That covers the robot table, drawing scale, preset, end effector, every view checkbox,
+  grid, projection and B&W sliders, single or multi-view with its panes, projection, camera
+  position, and the compare table B. Files from elsewhere are checked before loading.
+
 - For each joint, set θ, d, a, α with a slider or a number input. The model updates live.
 - Add joints with **+ Add joint** (up to 8) and remove one with its **✕** button.
 - **Presets**, in three groups. Each one shows a short "what to notice" note in the sidebar, with
@@ -44,6 +49,24 @@ Open a preset directly with a URL hash, e.g. `#planar2r`, `#twist`, `#ex-wrist` 
   the link along xᵢ and the next joint's drum. This makes the turning easy to see, even for parts
   that spin about their own axis, like the base column. The pattern goes away about half a
   second after you stop.
+- **End effector** ("Drawing & view"): show or hide it, and pick its type: parallel gripper
+  (with a grip-opening slider), suction cup, pen / pointer, or a bare tool flange. It normally
+  continues the last link along xₙ. When the last link has no length (aₙ = 0) but has an offset
+  (dₙ ≠ 0, or a prismatic joint), it faces along that offset instead, along ±zₙ₋₁.
+- **Black & white (print) mode**: a line-art rendering for printing with little ink. Parts get
+  banded grey shading (lit side, mid band, shadow side, lit from the upper left relative to the
+  view, so it holds however you turn the robot) with black outlines and crease lines, and are told apart by tone
+  rather than hue: links light, joints mid-grey, x axes black, y grey, z white with an outline.
+  Labels and dimensions turn black on white. Sliders set the link and joint tones, the shading
+  darkness of the shadow side (shading) and the outline width; **Reset B&W settings** restores the defaults. Save image and
+  Copy image export the B&W version while it is on.
+- **Show base plate** (on by default): the round plate the robot stands on can be hidden.
+- **Global X / Y axes** (on by default): the world X and Y axes through the base origin. Each has a
+  short bold arrow (3 drawn units) with its label, then a thin line running on in both directions
+  to the edge of the view. Tick labels every drawn unit, out to ±10, show real units; turn them off
+  with **Show axis numbers**.
+- **Ground grid**: it follows the camera, so it always fills the viewport however far you pan or
+  zoom out. The **grid opacity** slider fades it (below 100%) or darkens its lines (100–200%).
 - **Projection on the XY plane** (opt-in, under "Drawing & view"): a soft shadow of the robot cast
   straight down onto the ground, i.e. its orthographic projection onto the XY plane. The opacity
   slider sets how strong it is (default 25%).
@@ -54,7 +77,9 @@ Open a preset directly with a URL hash, e.g. `#planar2r`, `#twist`, `#ex-wrist` 
 - View options start minimal: only the ground grid is shown. Turn on the EE coordinates, DH
   dimensions, frame axes and frame labels under "Drawing & view".
 - Frame axes are drawn on top of the robot, so a z axis running through a joint or an offset
-  link stays visible. The y axes are opt-in ("Show y axes", under "Show frame axes").
+  link stays visible. The y axes are opt-in ("Show y axes", under "Show frame axes"). While the
+  global X / Y axes are shown, frame {0}'s arrows are hidden, since the world frame is frame {0}.
+- **Frame labels** (x₁, z₁, …) and **frame names** ({0}, {1}, …) are separate opt-in checkboxes.
 - Frames {0}–{3} are drawn with the usual colors: **X red, Y green, Z blue**.
 - **Drawing scale**: 1 drawn unit = S real units. This lets large values (e.g. d = 50)
   fit on screen; the slider ranges grow with S. **Auto** picks a scale that fits the robot.
@@ -126,6 +151,31 @@ use and how it applies here. Controls: **Next ▶** (→), **◀ Back** (←), *
 around. Wherever a rule leaves a free choice, the walkthrough picks the model's direction, so the
 finished table matches the sidebar's DH table. Exiting restores your view and settings.
 
+## Compare mode: equivalent DH tables
+
+One robot can be described by several DH tables, because some frame choices are free (the
+direction of a z axis, x when two axes meet, the base x₀, …). Tables that describe the same
+robot are *equivalent*. **⇄ Compare** (canvas toolbar) checks this:
+
+1. Build robot **A** in the sidebar as usual, then press **⇄ Compare**.
+2. Type table **B** into the compact table in the panel. **Copy A into B** gives a starting point;
+   **+ Row** and ✕ add and remove joints.
+3. B is drawn in blue on top of A, with its own frames (x′, z′). A's joint axes are dashed grey,
+   and B's are green where they match A's and red where they don't. A tag marks B's end-effector
+   point.
+
+The verdict:
+
+- **✓ Equivalent**: every joint axis lies on the same line, possibly pointing the other way, and
+  the end-effector point is the same. This holds in the current pose and in three other test
+  poses. The panel also gives how B's joint variables follow A's, e.g. θ₂ᴮ = −θ₂ᴬ or
+  θ₁ᴮ = θ₁ᴬ − 180°.
+- **≈ Match in this pose only**: the drawings coincide now but separate once the joints move.
+- **✗ Not equivalent**, saying which joint axes or the end-effector point differ.
+
+Angles within 0.1° count as equal, so rounded values still match. The **–** button shrinks the
+panel to its verdict line so you can see the robot.
+
 ## Convention
 
 This uses the standard (distal) DH convention. Joint i moves about or along z₍ᵢ₋₁₎:
@@ -142,4 +192,5 @@ The gripper is mounted at the last frame {n}, with its fingers pointing along x�
 - `js/dh.js`: the DH matrix and forward kinematics (no Three.js)
 - `js/main.js`: the scene, robot drawing, UI and readouts
 - `js/presentation.js`: the "Learn DH" presentation mode
+- `js/compare.js`: compare mode (equivalent DH tables)
 - `index.html`, `style.css`: layout and styles
